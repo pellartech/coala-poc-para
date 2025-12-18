@@ -144,12 +144,12 @@ export default function NGOWalletCreator({ onWalletCreated }: { onWalletCreated?
                 Signers (Addresses)
               </label>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-                Signers là địa chỉ Ethereum bất kỳ (có thể là Para wallet, MetaMask, hoặc bất kỳ địa chỉ nào).
+                Signers are any Ethereum addresses (can be Para wallet, MetaMask, or any address).
                 <br />
-                <strong>⚠️ Lưu ý:</strong> Để ký transactions, signer phải có private key/wallet. 
-                Nếu thêm địa chỉ không có wallet, họ sẽ không thể ký được.
+                <strong>⚠️ Note:</strong> To sign transactions, the signer must have a private key/wallet. 
+                If you add an address without a wallet, they will not be able to sign.
                 <br />
-                <strong>✅ Best practice:</strong> Chỉ thêm địa chỉ của các wallet thực sự (Para, MetaMask, Hardware wallet, etc.)
+                <strong>✅ Best practice:</strong> Only add addresses of actual wallets (Para, MetaMask, Hardware wallet, etc.)
               </p>
               <div className="flex flex-col gap-2">
                 {signers.map((signer, index) => (
@@ -207,7 +207,7 @@ export default function NGOWalletCreator({ onWalletCreated }: { onWalletCreated?
           </button>
 
           {(error || errorMessage) && (
-            <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+            <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400 whitespace-pre-wrap">
               {error || errorMessage}
             </div>
           )}

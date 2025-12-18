@@ -52,6 +52,8 @@ export function createParaEip1193Provider(walletClient: any, viemAccount: any, r
   const provider = {
     request: async (args: { method: string; params?: any[] }) => {
       const { method, params } = args;
+      
+      try {
 
       // Intercept eth_accounts - return Para wallet address
       if (method === 'eth_accounts') {
@@ -168,11 +170,21 @@ export function createParaEip1193Provider(walletClient: any, viemAccount: any, r
         }),
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`RPC ${response.status}: ${errorText || response.statusText}`);
+      }
+
       const data = await response.json();
       if (data.error) {
         throw new Error(data.error.message || 'RPC error');
       }
       return data.result;
+      
+      } catch (error: any) {
+        console.error('EIP-1193 Provider Error:', method, error.message);
+        throw error;
+      }
     },
   };
 

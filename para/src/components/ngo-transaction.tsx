@@ -36,6 +36,7 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
   const [toAddress, setToAddress] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [tokenAddress, setTokenAddress] = useState<string>(USDC_ADDRESS);
+  const [requiredSignatures, setRequiredSignatures] = useState<number>(0); // Custom threshold per transaction
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [successMessage, setSuccessMessage] = useState<string>("");
@@ -137,8 +138,12 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
       const signedTx = await safeSdk.signTransaction(safeTransaction);
       console.log("Signed transaction, signatures count:", signedTx.signatures?.size || 0);
 
+      // Determine the effective threshold for this transaction
+      const effectiveThreshold = requiredSignatures || threshold;
+      console.log(`Using threshold: ${effectiveThreshold} (custom: ${requiredSignatures}, safe default: ${threshold})`);
+
       // Check if we can execute immediately
-      if (threshold === 1) {
+      if (effectiveThreshold === 1) {
         // Single signature required, execute immediately (following Para docs pattern)
         const txResponse = await safeSdk.executeTransaction(signedTx);
         
@@ -174,6 +179,16 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
         // Get nonce from Safe
         const nonce = await safeSdk.getNonce();
         
+        // Store custom threshold in origin field as metadata
+        const metadata = {
+          app: "NGO Wallet Management",
+          requiredSignatures: effectiveThreshold,
+          amount: amount,
+          token: "USDC"
+        };
+        
+        console.log("Proposing with custom threshold:", effectiveThreshold, "metadata:", metadata);
+        
         // Propose transaction using direct API call to v1 endpoint
         await proposeTransaction({
           safeAddress: safeAddress,
@@ -190,7 +205,7 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
           contractTransactionHash: safeTxHash,
           sender: sender,
           signature: signature,
-          origin: "NGO Wallet Management",
+          origin: JSON.stringify(metadata), // Store as JSON string
         });
         
         console.log("Transaction proposed to Safe Transaction Service successfully");
@@ -198,14 +213,15 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
         setSuccessMessage(
           `Transaction created! Waiting for signatures.\n` +
           `Amount: ${amount} USDC\n` +
-          `Threshold: ${threshold} of ${owners.length}\n` +
-          `Current Signatures: 1 / ${threshold}\n` +
+          `Required Signatures: ${effectiveThreshold} of ${owners.length}` + 
+          (effectiveThreshold !== threshold ? ` (Custom threshold, Safe default is ${threshold})` : '') + `\n` +
+          `Current Signatures: 1 / ${effectiveThreshold}\n` +
           `Safe Tx Hash: ${safeTxHash}\n\n` +
           `Other signers need to:\n` +
           `1. Connect with their owner wallet\n` +
           `2. Go to "Pending Transactions" tab\n` +
           `3. Sign this transaction\n\n` +
-          `When ${threshold} signature${threshold > 1 ? 's' : ''} ${threshold > 1 ? 'are' : 'is'} collected, transaction will be executed.`
+          `When ${effectiveThreshold} signature${effectiveThreshold > 1 ? 's' : ''} ${effectiveThreshold > 1 ? 'are' : 'is'} collected, transaction can be executed.`
         );
         
         // Don't execute yet, wait for more signatures
@@ -230,37 +246,7 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
       }
     } catch (err: any) {
       console.error("Failed to send transaction:", err);
-      
-      // Provide more detailed error messages
-      let errorMsg = "Failed to send transaction";
-      
-      if (err?.message) {
-        errorMsg = err.message;
-      } else if (err?.error?.message) {
-        errorMsg = err.error.message;
-      } else if (typeof err === 'string') {
-        errorMsg = err;
-      }
-      
-      // Add more context for common errors
-      if (errorMsg.includes("not deployed") || errorMsg.includes("SafeProxy")) {
-        errorMsg = `Safe wallet is not deployed yet. Please create a transaction first to deploy it.\n\n${errorMsg}`;
-      } else if (errorMsg.includes("signature") || errorMsg.includes("sign")) {
-        errorMsg = `Signature error: ${errorMsg}`;
-      } else if (errorMsg.includes("network") || errorMsg.includes("RPC")) {
-        errorMsg = `Network error: ${errorMsg}\n\nPlease check your RPC connection.`;
-      } else if (errorMsg.includes("insufficient funds") || errorMsg.includes("balance")) {
-        errorMsg = `Insufficient balance: ${errorMsg}`;
-      }
-      
-      // Include full error details in console for debugging
-      console.error("Full error details:", {
-        error: err,
-        message: errorMsg,
-        stack: err?.stack,
-        cause: err?.cause,
-      });
-      
+      const errorMsg = err?.message || err?.error?.message || (typeof err === 'string' ? err : "Failed to send transaction");
       setErrorMessage(errorMsg);
     } finally {
       setIsSending(false);
@@ -360,9 +346,33 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
             placeholder="100"
             className="w-full rounded-lg border border-black/[.08] bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-white/[.145] dark:bg-[#1a1a1a] dark:text-zinc-50"
           />
-          {amount && !isNaN(parseFloat(amount)) && (
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium text-black dark:text-zinc-50">
+            Required Signatures
+            <span className="text-xs text-zinc-500 ml-2">(Custom threshold for this transaction)</span>
+          </label>
+          <select
+            value={requiredSignatures || threshold}
+            onChange={(e) => setRequiredSignatures(parseInt(e.target.value))}
+            className="w-full rounded-lg border border-black/[.08] bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-white/[.145] dark:bg-[#1a1a1a] dark:text-zinc-50"
+          >
+            <option value={0}>Use Safe default ({threshold} of {owners.length})</option>
+            {Array.from({ length: owners.length }, (_, i) => i + 1).map((num) => (
+              <option key={num} value={num}>
+                {num} of {owners.length} signature{num > 1 ? 's' : ''}
+              </option>
+            ))}
+          </select>
+          {requiredSignatures > 0 && requiredSignatures !== threshold && (
+            <p className="text-xs text-orange-600 dark:text-orange-400">
+              ⚠️ Custom threshold: This transaction requires {requiredSignatures} signature{requiredSignatures > 1 ? 's' : ''} (differs from Safe's default {threshold})
+            </p>
+          )}
+          {(!requiredSignatures || requiredSignatures === threshold) && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              This transaction requires {threshold} of {owners.length} signatures to execute
+              Using Safe's default threshold: {threshold} of {owners.length} signatures
             </p>
           )}
         </div>

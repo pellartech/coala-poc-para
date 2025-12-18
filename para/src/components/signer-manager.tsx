@@ -11,7 +11,7 @@ import { proposeTransaction } from "@/lib/safeTxService";
 
 export default function SignerManager({ safeAddress }: { safeAddress: string }) {
   const { isConnected } = useAccount();
-  const { safeSdk, isLoading, error, owners, threshold, refreshSafeInfo } = useSafeProtocolKit(safeAddress);
+  const { safeSdk, isLoading, error, owners, threshold, refreshSafeInfo, signerAddress } = useSafeProtocolKit(safeAddress);
   
   const [newSignerAddress, setNewSignerAddress] = useState<string>("");
   const [signerToRemove, setSignerToRemove] = useState<string>("");
@@ -97,7 +97,7 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
         }
         
         const safeAddress = getAddress(await safeSdk.getAddress());
-        const senderAddress = getAddress(currentOwners[0]); // Current connected owner (checksummed)
+        const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
         const nonce = await safeSdk.getNonce();
         
         // Propose transaction using direct API call
@@ -220,7 +220,7 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
         }
         
         const safeAddress = getAddress(await safeSdk.getAddress());
-        const senderAddress = getAddress(currentOwners[0]);
+        const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
         const nonce = await safeSdk.getNonce();
         
         // Propose transaction using direct API call
@@ -324,7 +324,7 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
         }
         
         const safeAddress = getAddress(await safeSdk.getAddress());
-        const senderAddress = getAddress(currentOwners[0]);
+        const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
         const nonce = await safeSdk.getNonce();
         
         // Propose transaction using direct API call
@@ -403,8 +403,8 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
 
       <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
         <div className="rounded-lg bg-green-50 p-2 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300 mb-3">
-          <strong>💡 Owner = Signer:</strong> Trong Safe, "owner" và "signer" là cùng một khái niệm. 
-          Mỗi owner đều có quyền ký (sign) transaction.
+          <strong>💡 Owner = Signer:</strong> In Safe, "owner" and "signer" are the same concept. 
+          Each owner has the right to sign transactions.
         </div>
         <div className="space-y-1">
           <p><strong>Current Signers (Owners):</strong> {owners.length}</p>
@@ -426,43 +426,43 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
       <div className="flex flex-col gap-3 p-4 border border-black/[.08] dark:border-white/[.145] rounded-lg">
         <h3 className="text-lg font-semibold text-black dark:text-zinc-50">Add Signer</h3>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          <strong>Owner = Signer:</strong> Trong Safe, mỗi owner đều là một signer. 
-          Khi thêm owner mới, họ sẽ có quyền ký transaction.
+          <strong>Owner = Signer:</strong> In Safe, every owner is a signer. 
+          When adding a new owner, they will have the right to sign transactions.
           <br />
           <br />
-          Signer/Owner là địa chỉ Ethereum bất kỳ (có thể là Para wallet, MetaMask, hoặc bất kỳ địa chỉ nào).
+          Signer/Owner is any Ethereum address (can be Para wallet, MetaMask, or any address).
           <br />
-          <strong>⚠️ Lưu ý:</strong> Để ký transactions, signer phải có private key/wallet. 
-          Nếu thêm địa chỉ không có wallet, họ sẽ không thể ký được.
+          <strong>⚠️ Note:</strong> To sign transactions, the signer must have a private key/wallet. 
+          If you add an address without a wallet, they will not be able to sign.
           <br />
-          <strong>✅ Best practice:</strong> Chỉ thêm địa chỉ của các wallet thực sự (Para, MetaMask, Hardware wallet, etc.)
+          <strong>✅ Best practice:</strong> Only add addresses of actual wallets (Para, MetaMask, Hardware wallet, etc.)
         </p>
         <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-          <strong>💡 Threshold khi thêm signer để làm gì?</strong>
+          <strong>💡 What is the threshold for when adding a signer?</strong>
           <br />
           <br />
-          <strong>Đây là số signatures CẦN THIẾT để execute transaction SAU KHI thêm signer mới.</strong>
+          <strong>This is the number of signatures REQUIRED to execute transactions AFTER adding the new signer.</strong>
           <br />
           <br />
-          <strong>Ví dụ cụ thể:</strong>
+          <strong>Specific example:</strong>
           <br />
-          • Hiện tại: 2 signers, threshold = 2 → Cần 2/2 (100%) để execute
+          • Current: 2 signers, threshold = 2 → Need 2/2 (100%) to execute
           <br />
-          • Thêm 1 signer → Có 3 signers
+          • Add 1 signer → Have 3 signers
           <br />
-          • Chọn threshold mới = 2 → Sau này cần 2/3 (67%) để execute
+          • Choose new threshold = 2 → Later need 2/3 (67%) to execute
           <br />
-          • Chọn threshold mới = 3 → Sau này cần 3/3 (100%) để execute
+          • Choose new threshold = 3 → Later need 3/3 (100%) to execute
           <br />
           <br />
-          <strong>→ Threshold này quyết định độ bảo mật của Safe wallet sau khi thêm signer.</strong>
+          <strong>→ This threshold determines the security level of the Safe wallet after adding a signer.</strong>
         </div>
         <div className="flex flex-col gap-2">
           <input
             type="text"
             value={newSignerAddress}
             onChange={(e) => setNewSignerAddress(e.target.value)}
-            placeholder="0x... (Ethereum address - có thể là Para wallet hoặc bất kỳ địa chỉ nào)"
+            placeholder="0x... (Ethereum address - can be Para wallet or any address)"
             className="w-full rounded-lg border border-black/[.08] bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-white/[.145] dark:bg-[#1a1a1a] dark:text-zinc-50"
           />
           <input
@@ -476,15 +476,15 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
           />
           <div className="text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
             <p>
-              <strong>Threshold mới sau khi thêm signer:</strong> {newThreshold} of {owners.length + 1}
+              <strong>New threshold after adding signer:</strong> {newThreshold} of {owners.length + 1}
             </p>
             <div className="bg-zinc-100 dark:bg-zinc-800 p-2 rounded text-xs">
-              <p className="font-semibold mb-1">Hiện tại:</p>
+              <p className="font-semibold mb-1">Current:</p>
               <p>• {owners.length} signers, threshold = {threshold}</p>
-              <p>• Cần {threshold}/{owners.length} signatures để execute</p>
-              <p className="font-semibold mt-2 mb-1">Sau khi thêm:</p>
+              <p>• Need {threshold}/{owners.length} signatures to execute</p>
+              <p className="font-semibold mt-2 mb-1">After adding:</p>
               <p>• {owners.length + 1} signers, threshold = {newThreshold}</p>
-              <p>• Cần {newThreshold}/{owners.length + 1} signatures để execute</p>
+              <p>• Need {newThreshold}/{owners.length + 1} signatures to execute</p>
             </div>
           </div>
         </div>

@@ -48,7 +48,7 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
         const code = await publicClient.getBytecode({ address: safeAddress as `0x${string}` });
         
         if (!code || code === "0x") {
-          setError(`SafeProxy contract is not deployed on the current network. The Safe wallet at ${safeAddress} has not been deployed yet. Please deploy it first by creating a transaction.`);
+          setError(`Safe contract not deployed at ${safeAddress}`);
           setSafeSdk(null);
           setIsLoading(false);
           return;
@@ -74,12 +74,7 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
         setError(null);
       } catch (err: any) {
         console.error("Failed to initialize Safe Protocol Kit:", err);
-        // Check if error is about contract not deployed
-        if (err?.message?.includes("not deployed") || err?.message?.includes("SafeProxy")) {
-          setError(`SafeProxy contract is not deployed on the current network. The Safe wallet at ${safeAddress} has not been deployed yet. Please deploy it first by creating a transaction.`);
-        } else {
-          setError(err?.message || "Failed to initialize Safe");
-        }
+        setError(err?.message || "Failed to initialize Safe");
         setSafeSdk(null);
       } finally {
         setIsLoading(false);
@@ -109,5 +104,6 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
     owners,
     threshold,
     refreshSafeInfo,
+    signerAddress: viemAccount?.address,
   };
 };

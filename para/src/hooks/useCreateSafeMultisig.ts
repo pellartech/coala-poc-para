@@ -80,30 +80,48 @@ export const useCreateSafeMultisig = () => {
           // Safe is not deployed, create a dummy transaction to deploy it
           console.log("Deploying Safe contract...");
           
-          // Create a transaction to self (0 value) to trigger deployment
-          const deployTx = await safeSdk.createTransaction({
-            transactions: [{
-              to: address as `0x${string}`,
-              value: "0",
-              data: "0x",
-            }],
-          });
-          
-          // Sign and execute the deployment transaction
-          await safeSdk.signTransaction(deployTx);
-          const deployResponse = await safeSdk.executeTransaction(deployTx);
-          
-          console.log("Safe deployed! Transaction hash:", deployResponse.hash);
-          
-          // Wait a bit for the transaction to be mined
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          try {
+            // Create a transaction to self (0 value) to trigger deployment
+            const deployTx = await safeSdk.createTransaction({
+              transactions: [{
+                to: address as `0x${string}`,
+                value: "0",
+                data: "0x",
+              }],
+            });
+            
+            // Sign and execute the deployment transaction
+            console.log("Signing deployment transaction...");
+            await safeSdk.signTransaction(deployTx);
+            
+            console.log("Executing deployment transaction...");
+            const deployResponse = await safeSdk.executeTransaction(deployTx);
+            
+            console.log("Safe deployed! Transaction hash:", deployResponse.hash);
+            
+            // Wait a bit for the transaction to be mined
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } catch (signError: any) {
+            // Extract detailed error information
+            const errorDetails = {
+              message: signError?.message || 'Unknown error',
+              code: signError?.code,
+              details: signError?.details,
+              data: signError?.data,
+              cause: signError?.cause,
+            };
+            
+            console.error("Deployment error details:", errorDetails);
+            
+            // Throw the original error from API
+            throw signError;
+          }
         } else {
           console.log("Safe already deployed");
         }
       } catch (deployError: any) {
-        console.warn("Could not deploy Safe immediately:", deployError?.message);
-        // Safe will be deployed on first real transaction
-        console.log("Safe will be deployed on first transaction");
+        console.error("Deployment error:", deployError);
+        throw deployError;
       }
 
       setSafeAddress(address);
@@ -113,7 +131,7 @@ export const useCreateSafeMultisig = () => {
       console.error("Failed to create Safe:", err);
       const errorMessage = err?.message || "Failed to create Safe multisig wallet";
       setError(errorMessage);
-      throw new Error(errorMessage);
+      throw err;
     } finally {
       setIsCreating(false);
     }

@@ -73,8 +73,8 @@ export async function proposeTransaction(params: ProposeTransactionParams): Prom
   
   if (!response.ok) {
     const error = await response.text();
-    console.error("Failed to propose transaction:", error);
-    throw new Error(`Failed to propose transaction: ${response.status} ${error}`);
+    console.error("API Error:", response.status, error);
+    throw new Error(`${response.status}: ${error}`);
   }
   
   // Safe Transaction Service returns 201 Created with empty body on success
@@ -114,7 +114,8 @@ export async function getPendingTransactions(safeAddress: string): Promise<any> 
   
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Failed to get pending transactions: ${response.status} ${error}`);
+    console.error("API Error:", response.status, error);
+    throw new Error(`${response.status}: ${error}`);
   }
   
   return await response.json();
@@ -123,7 +124,11 @@ export async function getPendingTransactions(safeAddress: string): Promise<any> 
 /**
  * Confirm/sign a transaction
  */
-export async function confirmTransaction(safeTxHash: string, signature: string): Promise<void> {
+export async function confirmTransaction(
+  safeTxHash: string, 
+  signature: string,
+  owner: string // Add owner address parameter
+): Promise<void> {
   const url = `${SAFE_TX_SERVICE_URL}/multisig-transactions/${safeTxHash}/confirmations/`;
   
   const headers: HeadersInit = {
@@ -134,15 +139,23 @@ export async function confirmTransaction(safeTxHash: string, signature: string):
     headers["X-API-Key"] = SAFE_API_KEY;
   }
   
+  // Checksum owner address
+  const checksummedOwner = getAddress(owner);
+  
   const response = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ signature }),
+    body: JSON.stringify({ 
+      signature,
+      // Some Safe TX Service versions recover signer from signature,
+      // but to be explicit, we can add it (though API might not use it)
+    }),
   });
   
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Failed to confirm transaction: ${response.status} ${error}`);
+    console.error("API Error:", response.status, error);
+    throw new Error(`${response.status}: ${error}`);
   }
   
   // Handle empty response
@@ -181,7 +194,8 @@ export async function getTransaction(safeTxHash: string): Promise<any> {
   
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Failed to get transaction: ${response.status} ${error}`);
+    console.error("API Error:", response.status, error);
+    throw new Error(`${response.status}: ${error}`);
   }
   
   return await response.json();

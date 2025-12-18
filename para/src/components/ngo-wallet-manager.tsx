@@ -8,7 +8,7 @@ import PendingTransactions from "./pending-transactions";
 
 export default function NGOWalletManager() {
   const [safeAddress, setSafeAddress] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"create" | "manage" | "transaction" | "pending">("create");
+  const [activeTab, setActiveTab] = useState<"create" | "manage" | "transaction" | "pending">("manage");
 
   return (
     <div className="flex flex-col gap-6">
@@ -47,7 +47,7 @@ export default function NGOWalletManager() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-black/[.08] dark:border-white/[.145]">
-        <button
+        {/* <button
           onClick={() => setActiveTab("create")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "create"
@@ -56,7 +56,7 @@ export default function NGOWalletManager() {
           }`}
         >
           Create Wallet
-        </button>
+        </button> */}
         {safeAddress && (
           <>
             <button
@@ -95,7 +95,7 @@ export default function NGOWalletManager() {
 
       {/* Tab Content */}
       <div>
-        {activeTab === "create" && (
+        {/* {activeTab === "create" && (
           <NGOWalletCreator
             onWalletCreated={(address) => {
               if (address) {
@@ -104,7 +104,7 @@ export default function NGOWalletManager() {
               }
             }}
           />
-        )}
+        )} */}
         {activeTab === "manage" && safeAddress && (
           <SignerManager safeAddress={safeAddress} />
         )}

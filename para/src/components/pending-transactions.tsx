@@ -14,8 +14,12 @@ import { useSafeProtocolKit } from "@/hooks/useSafeProtocolKit";
 import { 
   getPendingTransactions, 
   confirmTransaction as confirmTx,
-  getTransaction as getTx 
+  getTransaction as getTx,
+  proposeTransaction 
 } from "@/lib/safeTxService";
+
+// Helper to get Etherscan URL
+const getEtherscanTxUrl = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
 // Use Safe Transaction Service response type directly
 type SafeTransaction = any; // Use Safe Transaction Service response as-is
@@ -142,6 +146,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
       const safeTransactionData = tx;
       
       // Recreate the Safe transaction from service data
+      // Must include ALL parameters to get exact same hash
       const safeTransaction = await safeSdkLocal.createTransaction({
         transactions: [{
           to: safeTransactionData.to as `0x${string}`,
@@ -149,11 +154,45 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
           data: safeTransactionData.data as `0x${string}` || "0x",
         }],
       });
+      
+      // Set additional transaction parameters if they exist in service data
+      if (safeTransactionData.safeTxGas) {
+        safeTransaction.data.safeTxGas = safeTransactionData.safeTxGas;
+      }
+      if (safeTransactionData.baseGas) {
+        safeTransaction.data.baseGas = safeTransactionData.baseGas;
+      }
+      if (safeTransactionData.gasPrice) {
+        safeTransaction.data.gasPrice = safeTransactionData.gasPrice;
+      }
+      if (safeTransactionData.gasToken) {
+        safeTransaction.data.gasToken = safeTransactionData.gasToken;
+      }
+      if (safeTransactionData.refundReceiver) {
+        safeTransaction.data.refundReceiver = safeTransactionData.refundReceiver;
+      }
+      if (safeTransactionData.nonce !== undefined) {
+        safeTransaction.data.nonce = safeTransactionData.nonce;
+      }
 
       // Verify the transaction hash matches
       const recreatedHash = await safeSdkLocal.getTransactionHash(safeTransaction);
       console.log("Original hash:", tx.safeTxHash);
       console.log("Recreated hash:", recreatedHash);
+      
+      if (recreatedHash.toLowerCase() !== tx.safeTxHash.toLowerCase()) {
+        console.error("⚠️ Transaction hash mismatch!");
+        console.error("This means the recreated transaction doesn't match the original");
+        console.error("Signature will recover wrong signer address!");
+        throw new Error(
+          `Transaction hash mismatch!\n` +
+          `Original: ${tx.safeTxHash}\n` +
+          `Recreated: ${recreatedHash}\n\n` +
+          `This transaction was created with different parameters. ` +
+          `Cannot sign - hash must match exactly.`
+        );
+      }
+      console.log("✅ Hash match confirmed");
 
       // Sign transaction (following Para docs pattern)
       const signedTx = await safeSdkLocal.signTransaction(safeTransaction);
@@ -175,8 +214,11 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
         throw new Error("Failed to extract signature from signed transaction");
       }
 
+      console.log("Confirming with signer:", currentAddress);
+      console.log("Signature:", signature.slice(0, 20) + "...");
+
       // Confirm transaction with extracted signature using direct API call
-      await confirmTx(tx.safeTxHash, signature);
+      await confirmTx(tx.safeTxHash, signature, currentAddress);
       
       setSuccess("Transaction confirmed! Reloading...");
       
@@ -186,6 +228,126 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
       // Use error from Safe Transaction Service directly
       console.error("Failed to confirm transaction:", err);
       setError(err?.message || err?.toString() || "Failed to confirm transaction");
+    } finally {
+      setIsSigning(null);
+    }
+  };
+
+  const handleRejectTransaction = async (tx: SafeTransaction) => {
+    if (!viemAccount || !walletClient) {
+      setError("Please connect your wallet first");
+      return;
+    }
+
+    if (!confirm(
+      `⚠️ Reject this transaction ON-CHAIN?\n\n` +
+      `Transaction: ${tx.safeTxHash.slice(0, 10)}...\n` +
+      `Nonce: ${tx.nonce}\n\n` +
+      `This will create a rejection transaction with the same nonce.\n` +
+      `Once executed, the original transaction cannot be executed anymore.\n\n` +
+      `Continue?`
+    )) {
+      return;
+    }
+
+    setIsSigning(tx.safeTxHash);
+    setError("");
+    setSuccess("");
+
+    try {
+      console.log("Creating rejection transaction for nonce:", tx.nonce);
+
+      // Create Para provider
+      const paraProvider = createParaProvider(walletClient, viemAccount, RPC_URL);
+      const signer = viemAccount.address;
+
+      // Get Safe SDK
+      const safeSdkLocal = await getSafeSdk({
+        paraProvider,
+        safeAddress,
+        signerAddress: signer,
+      });
+
+      // Create rejection transaction: self-transfer with 0 value
+      const rejectionTx = await safeSdkLocal.createRejectionTransaction(tx.nonce);
+      console.log("Rejection transaction created with nonce:", tx.nonce);
+
+      // Sign the rejection transaction
+      const signedRejectionTx = await safeSdkLocal.signTransaction(rejectionTx);
+      console.log("Rejection transaction signed");
+
+      // Check if we can execute immediately
+      if (threshold === 1) {
+        // Execute immediately
+        const txResponse = await safeSdkLocal.executeTransaction(signedRejectionTx);
+        console.log("Rejection transaction executed:", txResponse.hash);
+        
+        setSuccess(
+          `✅ Transaction rejected on-chain!\n\n` +
+          `Rejection Tx Hash: ${txResponse.hash}\n` +
+          `Original transaction can no longer be executed.\n\n` +
+          `View on Etherscan: ${getEtherscanTxUrl(txResponse.hash)}`
+        );
+      } else {
+        // Need more signatures - propose rejection transaction
+        const rejectionTxHash = await safeSdkLocal.getTransactionHash(rejectionTx);
+        
+        // Extract signature
+        const signaturesMap = signedRejectionTx.signatures || new Map();
+        let signature = "";
+        for (const [addr, sig] of signaturesMap.entries()) {
+          const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
+          if (sigValue) {
+            signature = sigValue;
+            break;
+          }
+        }
+
+        if (!signature) {
+          throw new Error("Failed to extract signature from rejection transaction");
+        }
+
+        // Propose rejection transaction to Safe TX Service
+        const sender = getAddress(viemAccount.address);
+        await proposeTransaction({
+          safeAddress: safeAddress,
+          to: safeAddress, // Self-transfer
+          value: "0",
+          data: "0x",
+          operation: 0,
+          safeTxGas: signedRejectionTx.data.safeTxGas,
+          baseGas: signedRejectionTx.data.baseGas,
+          gasPrice: signedRejectionTx.data.gasPrice,
+          gasToken: signedRejectionTx.data.gasToken,
+          refundReceiver: signedRejectionTx.data.refundReceiver,
+          nonce: tx.nonce, // Same nonce as original!
+          contractTransactionHash: rejectionTxHash,
+          sender: sender,
+          signature: signature,
+          origin: JSON.stringify({
+            app: "NGO Wallet Management",
+            type: "rejection",
+            rejectingTx: tx.safeTxHash,
+          }),
+        });
+
+        console.log("Rejection transaction proposed to Safe TX Service");
+        
+        setSuccess(
+          `✅ Rejection transaction proposed!\n\n` +
+          `Nonce: ${tx.nonce}\n` +
+          `Required signatures: ${threshold}\n` +
+          `Current signatures: 1 / ${threshold}\n\n` +
+          `Other signers need to sign the rejection transaction.\n` +
+          `Once ${threshold} signatures collected, execute to reject original transaction on-chain.`
+        );
+      }
+
+      // Reload pending transactions
+      await loadPendingTransactions();
+    } catch (err: any) {
+      console.error("Failed to reject transaction:", err);
+      setError(err?.message || err?.toString() || "Failed to reject transaction");
     } finally {
       setIsSigning(null);
     }
@@ -227,18 +389,78 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
         signerAddress: signer,
       });
 
+      // Check if this is a rejection transaction
+      let isRejectionTx = false;
+      try {
+        const metadata = JSON.parse(safeTransactionData.origin || "{}");
+        isRejectionTx = metadata.type === "rejection";
+      } catch (e) {
+        // Not metadata, ignore
+      }
+
       // Recreate transaction from Safe Transaction Service data
-      const safeTransaction = await safeSdkLocal.createTransaction({
-        transactions: [{
-          to: safeTransactionData.to as `0x${string}`,
-          value: safeTransactionData.value || "0",
-          data: safeTransactionData.data as `0x${string}` || "0x",
-        }],
-      });
+      let safeTransaction;
+      
+      if (isRejectionTx) {
+        // For rejection transactions, use createRejectionTransaction
+        console.log("Recreating rejection transaction with nonce:", safeTransactionData.nonce);
+        safeTransaction = await safeSdkLocal.createRejectionTransaction(safeTransactionData.nonce);
+      } else {
+        // For normal transactions, create from transaction data
+        safeTransaction = await safeSdkLocal.createTransaction({
+          transactions: [{
+            to: safeTransactionData.to as `0x${string}`,
+            value: safeTransactionData.value || "0",
+            data: safeTransactionData.data as `0x${string}` || "0x",
+          }],
+        });
+        
+        // Set all transaction parameters from service data to match exact hash
+        if (safeTransactionData.safeTxGas) {
+          safeTransaction.data.safeTxGas = safeTransactionData.safeTxGas;
+        }
+        if (safeTransactionData.baseGas) {
+          safeTransaction.data.baseGas = safeTransactionData.baseGas;
+        }
+        if (safeTransactionData.gasPrice) {
+          safeTransaction.data.gasPrice = safeTransactionData.gasPrice;
+        }
+        if (safeTransactionData.gasToken) {
+          safeTransaction.data.gasToken = safeTransactionData.gasToken;
+        }
+        if (safeTransactionData.refundReceiver) {
+          safeTransaction.data.refundReceiver = safeTransactionData.refundReceiver;
+        }
+        if (safeTransactionData.nonce !== undefined) {
+          safeTransaction.data.nonce = safeTransactionData.nonce;
+        }
+      }
+      
+      // Verify transaction hash matches
+      const recreatedHash = await safeSdkLocal.getTransactionHash(safeTransaction);
+      console.log("Original tx hash:", tx.safeTxHash);
+      console.log("Recreated hash:", recreatedHash);
+      
+      if (recreatedHash.toLowerCase() !== tx.safeTxHash.toLowerCase()) {
+        throw new Error(
+          `Transaction hash mismatch!\n` +
+          `Original: ${tx.safeTxHash}\n` +
+          `Recreated: ${recreatedHash}\n\n` +
+          `Cannot execute - signatures won't be valid for this hash.`
+        );
+      }
+      console.log("✅ Hash verified - matches original");
       
       // Add all collected signatures to the transaction
-      console.log("Adding signatures from confirmations...");
-      for (const confirmation of confirmations) {
+      // Sort confirmations by owner address (Safe requires signatures in order)
+      const sortedConfirmations = [...confirmations].sort((a, b) => {
+        const addrA = getAddress(a.owner).toLowerCase();
+        const addrB = getAddress(b.owner).toLowerCase();
+        return addrA < addrB ? -1 : addrA > addrB ? 1 : 0;
+      });
+      
+      console.log("Adding signatures from confirmations (sorted by owner address)...");
+      for (const confirmation of sortedConfirmations) {
         const ownerAddress = getAddress(confirmation.owner);
         const signatureData = confirmation.signature;
         
@@ -248,11 +470,21 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
             signer: ownerAddress,
             data: signatureData,
           } as any);
-          console.log("Added signature from:", ownerAddress);
+          console.log("Added signature from:", ownerAddress, "sig:", signatureData.slice(0, 20) + "...");
         }
       }
       
       console.log("Total signatures added:", safeTransaction.signatures?.size || 0);
+      
+      // Verify we have enough signatures
+      if ((safeTransaction.signatures?.size || 0) < threshold) {
+        throw new Error(
+          `Not enough signatures added to transaction!\n` +
+          `Added: ${safeTransaction.signatures?.size || 0}\n` +
+          `Required: ${threshold}`
+        );
+      }
+      console.log(`✅ Signature validation passed: ${safeTransaction.signatures?.size}/${threshold}`);
       
       // Execute transaction with all signatures
       const txResponse = await safeSdkLocal.executeTransaction(safeTransaction);
@@ -298,8 +530,8 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
           No pending transactions. Create a transaction first.
         </div>
         <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-          <strong>💡 Lưu ý:</strong> Tất cả data được lấy trực tiếp từ Safe Transaction Service API, 
-          không sử dụng localStorage. Data hiển thị là data gốc từ Safe, không bị biến đổi.
+          <strong>💡 Note:</strong> All data is fetched directly from Safe Transaction Service API, 
+          not using localStorage. Data displayed is original from Safe, not modified.
         </div>
       </div>
     );
@@ -327,12 +559,12 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
           </button>
         </div>
         <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-          <strong>📝 Cách ký transaction:</strong>
+          <strong>📝 How to sign transactions:</strong>
           <ol className="list-decimal list-inside mt-1 space-y-1">
-            <li>Đảm bảo bạn đã connect với wallet là owner của Safe</li>
-            <li>Click nút <strong>"✍️ Sign Transaction"</strong> bên dưới transaction</li>
-            <li>Xác nhận ký trong Para wallet popup</li>
-            <li>Sau khi đủ signatures, click <strong>"🚀 Execute Transaction"</strong> để execute</li>
+            <li>Ensure you're connected with a wallet that is an owner of this Safe</li>
+            <li>Click the <strong>"✍️ Sign Transaction"</strong> button below the transaction</li>
+            <li>Confirm signing in the Para wallet popup</li>
+            <li>Once enough signatures are collected, click <strong>"🚀 Execute Transaction"</strong> to execute</li>
           </ol>
         </div>
         {currentAddress && (
@@ -349,6 +581,27 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
           const confirmations = tx.confirmations || [];
           const confirmationsCount = confirmations.length;
           
+          // Extract custom threshold and metadata from origin
+          let customThreshold = threshold; // Default to Safe's threshold
+          let metadata = null;
+          let isRejection = false;
+          let rejectingTxHash = null;
+          
+          if (tx.origin) {
+            try {
+              metadata = JSON.parse(tx.origin);
+              if (metadata.requiredSignatures) {
+                customThreshold = metadata.requiredSignatures;
+              }
+              if (metadata.type === "rejection") {
+                isRejection = true;
+                rejectingTxHash = metadata.rejectingTx;
+              }
+            } catch (e) {
+              // Not JSON metadata, ignore
+            }
+          }
+          
           // Check if current wallet has signed using Safe Transaction Service data
           const hasSigned = currentAddress 
             ? confirmations.some((conf: any) => 
@@ -357,7 +610,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
             : false;
           
           const canSign = isOwner && !hasSigned; // Can sign if owner and hasn't signed yet
-          const canExecute = confirmationsCount >= threshold; // Use confirmations count from Safe Transaction Service
+          const canExecute = confirmationsCount >= customThreshold; // Use custom threshold if set
 
           // Decode transaction data to get token transfer details
           let decodedData: { recipient: string; amount: string } | null = null;
@@ -395,22 +648,49 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
           return (
             <div
               key={tx.safeTxHash}
-              className="flex flex-col gap-3 p-4 border border-black/[.08] dark:border-white/[.145] rounded-lg"
+              className={`flex flex-col gap-3 p-4 border rounded-lg ${
+                isRejection 
+                  ? "border-red-300 bg-red-50/50 dark:border-red-700 dark:bg-red-900/10" 
+                  : "border-black/[.08] dark:border-white/[.145]"
+              }`}
             >
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">Transaction</span>
+                  <span className="text-sm font-semibold">
+                    {isRejection ? "🚫 Rejection Transaction" : "Transaction"}
+                  </span>
                   <span className="text-xs text-zinc-500">
-                    {confirmationsCount} / {threshold} signatures
-                    {confirmationsCount >= threshold && " ✅"}
+                    {confirmationsCount} / {customThreshold} signatures
+                    {customThreshold !== threshold && <span className="ml-1 text-orange-600">(Custom)</span>}
+                    {canExecute && " ✅"}
                   </span>
                 </div>
                 <div className="text-xs font-mono break-all space-y-1">
+                  {isRejection && (
+                    <div className="mb-2 p-2 bg-red-100 dark:bg-red-900/30 rounded">
+                      <p className="text-red-800 dark:text-red-300 font-semibold">
+                        ⚠️ This is a rejection transaction
+                      </p>
+                      <p className="text-red-700 dark:text-red-400 text-xs mt-1">
+                        Execute this to permanently block transaction: {rejectingTxHash?.slice(0, 10)}...
+                      </p>
+                      <p className="text-red-700 dark:text-red-400 text-xs mt-1">
+                        <strong>Nonce:</strong> {tx.nonce} (same as original)
+                      </p>
+                    </div>
+                  )}
                   <p><strong>Safe Tx Hash:</strong> {tx.safeTxHash}</p>
-                  {decodedData ? (
+                  {isRejection ? (
+                    <>
+                      <p><strong>Type:</strong> Rejection (Self-transfer with 0 value)</p>
+                      <p><strong>To:</strong> {tx.to} (Safe itself)</p>
+                      <p><strong>Value:</strong> 0 ETH</p>
+                      <p><strong>Purpose:</strong> Consume nonce {tx.nonce} to block original transaction</p>
+                    </>
+                  ) : decodedData ? (
                     <>
                       <p><strong>Type:</strong> Token Transfer</p>
-                      <p><strong>Amount:</strong> {decodedData.amount} USDC</p>
+                      <p><strong>Amount:</strong> {decodedData.amount} {metadata?.token || "USDC"}</p>
                       <p><strong>Recipient:</strong> {decodedData.recipient}</p>
                       <p><strong>Token:</strong> {tx.to}</p>
                     </>
@@ -420,6 +700,12 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
                       <p><strong>Value:</strong> {tx.value || "0"} ETH</p>
                     </>
                   )}
+                  {customThreshold !== threshold && !isRejection && (
+                    <p className="text-orange-600 dark:text-orange-400">
+                      <strong>Custom Threshold:</strong> {customThreshold} signature{customThreshold > 1 ? 's' : ''} required (Safe default: {threshold})
+                    </p>
+                  )}
+                  <p><strong>Nonce:</strong> {tx.nonce}</p>
                   <p><strong>Created:</strong> {tx.submissionDate ? new Date(tx.submissionDate).toLocaleString() : tx.created ? new Date(tx.created).toLocaleString() : "N/A"}</p>
                 </div>
               </div>
@@ -448,6 +734,16 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
                     {isSigning === tx.safeTxHash ? "Executing..." : "🚀 Execute Transaction"}
                   </button>
                 )}
+                {/* {!isRejection && (
+                  <button
+                    onClick={() => handleRejectTransaction(tx)}
+                    disabled={isSigning === tx.safeTxHash}
+                    className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    title="Reject transaction on-chain"
+                  >
+                    ❌ Reject
+                  </button>
+                )} */}
               </div>
 
               {!isOwner && (

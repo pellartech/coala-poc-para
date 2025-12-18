@@ -7,6 +7,7 @@ A comprehensive multisig wallet management system for NGOs built with Para SDK, 
 - ✅ **Create Multisig Safe Wallets** - Deploy Safe wallets with multiple signers
 - ✅ **Signer Management** - Add, remove, and replace signers; update approval thresholds
 - ✅ **Multisig Transactions** - Create, sign, and execute transactions with multiple approvals
+- ✅ **Custom Threshold Per Transaction** - Set custom signature requirements for each transaction
 - ✅ **Pending Transactions** - View and manage transactions awaiting signatures
 - ✅ **Sepolia Testnet** - Fully configured for Sepolia testnet
 
