@@ -142,108 +142,80 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
       const effectiveThreshold = requiredSignatures || threshold;
       console.log(`Using threshold: ${effectiveThreshold} (custom: ${requiredSignatures}, safe default: ${threshold})`);
 
-      // Check if we can execute immediately
-      if (effectiveThreshold === 1) {
-        // Single signature required, execute immediately (following Para docs pattern)
-        const txResponse = await safeSdk.executeTransaction(signedTx);
-        
-        setSuccessMessage(
-          `Transaction submitted successfully!\n` +
-          `Amount: ${amount} USDC\n` +
-          `Threshold: ${threshold} of ${owners.length}\n` +
-          `Transaction Hash: ${txResponse.hash}\n\n` +
-          `View on Etherscan: ${getEtherscanTxUrl(txResponse.hash)}`
-        );
-      } else {
-        // Multisig: Propose transaction to Safe Transaction Service
-        // Using direct API call instead of SafeApiKit (which tries to use v2 endpoint that doesn't exist)
-        
-        // Extract signature from signedTx
-        const signaturesMap = signedTx.signatures || new Map();
-        
-        // Get signature for current signer
-        let signature = "";
-        for (const [addr, sig] of signaturesMap.entries()) {
-          const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
-          if (sigValue) {
-            signature = sigValue;
-            console.log("Found signature for address:", addr, "length:", sigValue.length);
-            break;
-          }
+      // Always propose to Safe Transaction Service (even if threshold = 1)
+      // User needs to manually execute in Pending Transactions tab
+      
+      // Extract signature from signedTx
+      const signaturesMap = signedTx.signatures || new Map();
+      
+      // Get signature for current signer
+      let signature = "";
+      for (const [addr, sig] of signaturesMap.entries()) {
+        const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
+        if (sigValue) {
+          signature = sigValue;
+          console.log("Found signature for address:", addr, "length:", sigValue.length);
+          break;
         }
-        
-        if (!signature) {
-          throw new Error("Failed to extract signature from signed transaction");
-        }
-        
-        // Get nonce from Safe
-        const nonce = await safeSdk.getNonce();
-        
-        // Store custom threshold in origin field as metadata
-        const metadata = {
-          app: "NGO Wallet Management",
-          requiredSignatures: effectiveThreshold,
-          amount: amount,
-          token: "USDC"
-        };
-        
-        console.log("Proposing with custom threshold:", effectiveThreshold, "metadata:", metadata);
-        
-        // Propose transaction using direct API call to v1 endpoint
-        await proposeTransaction({
-          safeAddress: safeAddress,
-          to: tokenAddress,
-          value: "0",
-          data: data,
-          operation: 0, // CALL
-          safeTxGas: signedTx.data.safeTxGas,
-          baseGas: signedTx.data.baseGas,
-          gasPrice: signedTx.data.gasPrice,
-          gasToken: signedTx.data.gasToken,
-          refundReceiver: signedTx.data.refundReceiver,
-          nonce: nonce,
-          contractTransactionHash: safeTxHash,
-          sender: sender,
-          signature: signature,
-          origin: JSON.stringify(metadata), // Store as JSON string
-        });
-        
-        console.log("Transaction proposed to Safe Transaction Service successfully");
-
-        setSuccessMessage(
-          `Transaction created! Waiting for signatures.\n` +
-          `Amount: ${amount} USDC\n` +
-          `Required Signatures: ${effectiveThreshold} of ${owners.length}` + 
-          (effectiveThreshold !== threshold ? ` (Custom threshold, Safe default is ${threshold})` : '') + `\n` +
-          `Current Signatures: 1 / ${effectiveThreshold}\n` +
-          `Safe Tx Hash: ${safeTxHash}\n\n` +
-          `Other signers need to:\n` +
-          `1. Connect with their owner wallet\n` +
-          `2. Go to "Pending Transactions" tab\n` +
-          `3. Sign this transaction\n\n` +
-          `When ${effectiveThreshold} signature${effectiveThreshold > 1 ? 's' : ''} ${effectiveThreshold > 1 ? 'are' : 'is'} collected, transaction can be executed.`
-        );
-        
-        // Don't execute yet, wait for more signatures
-        setToAddress("");
-        setAmount("");
-        return;
       }
       
-      // Refresh balance (only if executed immediately)
-      if (threshold === 1) {
-        const publicClient = createPublicClient({
-          chain: CHAIN,
-          transport: http(RPC_URL),
-        });
-        const newBalance = await publicClient.readContract({
-          address: tokenAddress as `0x${string}`,
-          abi: ERC20_ABI,
-          functionName: "balanceOf",
-          args: [safeAddress as `0x${string}`],
-        });
-        setBalance(formatUnits(newBalance, tokenDecimals));
+      if (!signature) {
+        throw new Error("Failed to extract signature from signed transaction");
       }
+      
+      // Get nonce from Safe
+      const nonce = await safeSdk.getNonce();
+      
+      // Store custom threshold in origin field as metadata
+      const metadata = {
+        app: "NGO Wallet Management",
+        requiredSignatures: effectiveThreshold,
+        amount: amount,
+        token: "USDC"
+      };
+      
+      console.log("Proposing with custom threshold:", effectiveThreshold, "metadata:", metadata);
+      
+      // Propose transaction using direct API call to v1 endpoint
+      await proposeTransaction({
+        safeAddress: safeAddress,
+        to: tokenAddress,
+        value: "0",
+        data: data,
+        operation: 0, // CALL
+        safeTxGas: signedTx.data.safeTxGas,
+        baseGas: signedTx.data.baseGas,
+        gasPrice: signedTx.data.gasPrice,
+        gasToken: signedTx.data.gasToken,
+        refundReceiver: signedTx.data.refundReceiver,
+        nonce: nonce,
+        contractTransactionHash: safeTxHash,
+        sender: sender,
+        signature: signature,
+        origin: JSON.stringify(metadata), // Store as JSON string
+      });
+      
+      console.log("Transaction proposed to Safe Transaction Service successfully");
+
+      setSuccessMessage(
+        `Transaction created!\n` +
+        `Amount: ${amount} USDC\n` +
+        `Required Signatures: ${effectiveThreshold} of ${owners.length}` + 
+        (effectiveThreshold !== threshold ? ` (Custom threshold, Safe default is ${threshold})` : '') + `\n` +
+        `Current Signatures: 1 / ${effectiveThreshold}\n` +
+        `Safe Tx Hash: ${safeTxHash}\n\n` +
+        (effectiveThreshold === 1 
+          ? `Go to "Pending Transactions" tab to execute this transaction.`
+          : `Other signers need to:\n` +
+            `1. Connect with their owner wallet\n` +
+            `2. Go to "Pending Transactions" tab\n` +
+            `3. Sign this transaction\n\n` +
+            `When ${effectiveThreshold} signatures are collected, you can execute the transaction.`)
+      );
+      
+      // Clear form
+      setToAddress("");
+      setAmount("");
     } catch (err: any) {
       console.error("Failed to send transaction:", err);
       const errorMsg = err?.message || err?.error?.message || (typeof err === 'string' ? err : "Failed to send transaction");

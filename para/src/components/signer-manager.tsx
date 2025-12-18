@@ -72,60 +72,55 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
       // Sign transaction
       const signedTx = await safeSdk.signTransaction(safeTransaction);
       
-      // Check if we can execute immediately (threshold = 1) or need more signatures
-      if (currentThreshold === 1) {
-        // Execute immediately
-        const txResponse = await safeSdk.executeTransaction(signedTx);
-        setSuccessMessage(`Signer added successfully! Transaction: ${txResponse.hash}`);
-      } else {
-        // Propose to Safe Transaction Service for additional signatures
-        // Using direct API call instead of SafeApiKit
-        
-        // Extract signature
-        const signaturesMap = signedTx.signatures || new Map();
-        let signature = "";
-        for (const [addr, sig] of signaturesMap.entries()) {
-          const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
-          if (sigValue) {
-            signature = sigValue;
-            break;
-          }
+      // Always propose to Safe Transaction Service (even if threshold = 1)
+      // User needs to manually execute in Pending Transactions tab
+      
+      // Extract signature
+      const signaturesMap = signedTx.signatures || new Map();
+      let signature = "";
+      for (const [addr, sig] of signaturesMap.entries()) {
+        const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
+        if (sigValue) {
+          signature = sigValue;
+          break;
         }
-        
-        if (!signature) {
-          throw new Error("Failed to extract signature");
-        }
-        
-        const safeAddress = getAddress(await safeSdk.getAddress());
-        const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
-        const nonce = await safeSdk.getNonce();
-        
-        // Propose transaction using direct API call
-        await proposeTransaction({
-          safeAddress: safeAddress,
-          to: safeAddress, // Adding owner is a call to the Safe itself
-          value: "0",
-          data: signedTx.data.data,
-          operation: signedTx.data.operation,
-          safeTxGas: signedTx.data.safeTxGas,
-          baseGas: signedTx.data.baseGas,
-          gasPrice: signedTx.data.gasPrice,
-          gasToken: signedTx.data.gasToken,
-          refundReceiver: signedTx.data.refundReceiver,
-          nonce: nonce,
-          contractTransactionHash: safeTxHash,
-          sender: senderAddress,
-          signature: signature,
-          origin: "NGO Wallet Management - Add Signer",
-        });
-        
-        setSuccessMessage(
-          `Add signer transaction created! Waiting for signatures.\n\n` +
-          `Current Threshold: ${currentThreshold} of ${currentOwners.length}\n` +
-          `This transaction needs ${currentThreshold} signature(s) to execute.\n\n` +
-          `Other owners need to sign this transaction in the "Pending Transactions" tab.`
-        );
       }
+      
+      if (!signature) {
+        throw new Error("Failed to extract signature");
+      }
+      
+      const safeAddress = getAddress(await safeSdk.getAddress());
+      const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
+      const nonce = await safeSdk.getNonce();
+      
+      // Propose transaction using direct API call
+      await proposeTransaction({
+        safeAddress: safeAddress,
+        to: safeAddress, // Adding owner is a call to the Safe itself
+        value: "0",
+        data: signedTx.data.data,
+        operation: signedTx.data.operation,
+        safeTxGas: signedTx.data.safeTxGas,
+        baseGas: signedTx.data.baseGas,
+        gasPrice: signedTx.data.gasPrice,
+        gasToken: signedTx.data.gasToken,
+        refundReceiver: signedTx.data.refundReceiver,
+        nonce: nonce,
+        contractTransactionHash: safeTxHash,
+        sender: senderAddress,
+        signature: signature,
+        origin: "NGO Wallet Management - Add Signer",
+      });
+      
+      setSuccessMessage(
+        `Add signer transaction created!\n\n` +
+        `Current Threshold: ${currentThreshold} of ${currentOwners.length}\n` +
+        `Current Signatures: 1 / ${currentThreshold}\n\n` +
+        (currentThreshold === 1 
+          ? `Go to "Pending Transactions" tab to execute this transaction.`
+          : `Other owners need to sign this transaction in the "Pending Transactions" tab.`)
+      );
       
       setNewSignerAddress("");
       await refreshSafeInfo();
@@ -195,60 +190,55 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
       // Sign transaction
       const signedTx = await safeSdk.signTransaction(safeTransaction);
       
-      // Check if we can execute immediately (threshold = 1) or need more signatures
-      if (currentThreshold === 1) {
-        // Execute immediately
-        const txResponse = await safeSdk.executeTransaction(signedTx);
-        setSuccessMessage(`Signer removed successfully! Transaction: ${txResponse.hash}`);
-      } else {
-        // Propose to Safe Transaction Service for additional signatures
-        // Using direct API call
-        
-        // Extract signature
-        const signaturesMap = signedTx.signatures || new Map();
-        let signature = "";
-        for (const [addr, sig] of signaturesMap.entries()) {
-          const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
-          if (sigValue) {
-            signature = sigValue;
-            break;
-          }
+      // Always propose to Safe Transaction Service (even if threshold = 1)
+      // User needs to manually execute in Pending Transactions tab
+      
+      // Extract signature
+      const signaturesMap = signedTx.signatures || new Map();
+      let signature = "";
+      for (const [addr, sig] of signaturesMap.entries()) {
+        const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
+        if (sigValue) {
+          signature = sigValue;
+          break;
         }
-        
-        if (!signature) {
-          throw new Error("Failed to extract signature");
-        }
-        
-        const safeAddress = getAddress(await safeSdk.getAddress());
-        const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
-        const nonce = await safeSdk.getNonce();
-        
-        // Propose transaction using direct API call
-        await proposeTransaction({
-          safeAddress: safeAddress,
-          to: safeAddress,
-          value: "0",
-          data: signedTx.data.data,
-          operation: signedTx.data.operation,
-          safeTxGas: signedTx.data.safeTxGas,
-          baseGas: signedTx.data.baseGas,
-          gasPrice: signedTx.data.gasPrice,
-          gasToken: signedTx.data.gasToken,
-          refundReceiver: signedTx.data.refundReceiver,
-          nonce: nonce,
-          contractTransactionHash: safeTxHash,
-          sender: senderAddress,
-          signature: signature,
-          origin: "NGO Wallet Management - Remove Signer",
-        });
-        
-        setSuccessMessage(
-          `Remove signer transaction created! Waiting for signatures.\n\n` +
-          `Current Threshold: ${currentThreshold} of ${currentOwners.length}\n` +
-          `This transaction needs ${currentThreshold} signature(s) to execute.\n\n` +
-          `Other owners need to sign this transaction in the "Pending Transactions" tab.`
-        );
       }
+      
+      if (!signature) {
+        throw new Error("Failed to extract signature");
+      }
+      
+      const safeAddress = getAddress(await safeSdk.getAddress());
+      const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
+      const nonce = await safeSdk.getNonce();
+      
+      // Propose transaction using direct API call
+      await proposeTransaction({
+        safeAddress: safeAddress,
+        to: safeAddress,
+        value: "0",
+        data: signedTx.data.data,
+        operation: signedTx.data.operation,
+        safeTxGas: signedTx.data.safeTxGas,
+        baseGas: signedTx.data.baseGas,
+        gasPrice: signedTx.data.gasPrice,
+        gasToken: signedTx.data.gasToken,
+        refundReceiver: signedTx.data.refundReceiver,
+        nonce: nonce,
+        contractTransactionHash: safeTxHash,
+        sender: senderAddress,
+        signature: signature,
+        origin: "NGO Wallet Management - Remove Signer",
+      });
+      
+      setSuccessMessage(
+        `Remove signer transaction created!\n\n` +
+        `Current Threshold: ${currentThreshold} of ${currentOwners.length}\n` +
+        `Current Signatures: 1 / ${currentThreshold}\n\n` +
+        (currentThreshold === 1 
+          ? `Go to "Pending Transactions" tab to execute this transaction.`
+          : `Other owners need to sign this transaction in the "Pending Transactions" tab.`)
+      );
       
       setSignerToRemove("");
       await refreshSafeInfo();
@@ -299,60 +289,55 @@ export default function SignerManager({ safeAddress }: { safeAddress: string }) 
       // Sign transaction
       const signedTx = await safeSdk.signTransaction(safeTransaction);
       
-      // Check if we can execute immediately (threshold = 1) or need more signatures
-      if (currentThreshold === 1) {
-        // Execute immediately
-        const txResponse = await safeSdk.executeTransaction(signedTx);
-        setSuccessMessage(`Threshold updated successfully! Transaction: ${txResponse.hash}`);
-      } else {
-        // Propose to Safe Transaction Service for additional signatures
-        // Using direct API call
-        
-        // Extract signature
-        const signaturesMap = signedTx.signatures || new Map();
-        let signature = "";
-        for (const [addr, sig] of signaturesMap.entries()) {
-          const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
-          if (sigValue) {
-            signature = sigValue;
-            break;
-          }
+      // Always propose to Safe Transaction Service (even if threshold = 1)
+      // User needs to manually execute in Pending Transactions tab
+      
+      // Extract signature
+      const signaturesMap = signedTx.signatures || new Map();
+      let signature = "";
+      for (const [addr, sig] of signaturesMap.entries()) {
+        const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
+        if (sigValue) {
+          signature = sigValue;
+          break;
         }
-        
-        if (!signature) {
-          throw new Error("Failed to extract signature");
-        }
-        
-        const safeAddress = getAddress(await safeSdk.getAddress());
-        const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
-        const nonce = await safeSdk.getNonce();
-        
-        // Propose transaction using direct API call
-        await proposeTransaction({
-          safeAddress: safeAddress,
-          to: safeAddress,
-          value: "0",
-          data: signedTx.data.data,
-          operation: signedTx.data.operation,
-          safeTxGas: signedTx.data.safeTxGas,
-          baseGas: signedTx.data.baseGas,
-          gasPrice: signedTx.data.gasPrice,
-          gasToken: signedTx.data.gasToken,
-          refundReceiver: signedTx.data.refundReceiver,
-          nonce: nonce,
-          contractTransactionHash: safeTxHash,
-          sender: senderAddress,
-          signature: signature,
-          origin: "NGO Wallet Management - Update Threshold",
-        });
-        
-        setSuccessMessage(
-          `Update threshold transaction created! Waiting for signatures.\n\n` +
-          `Current Threshold: ${currentThreshold} of ${currentOwners.length}\n` +
-          `This transaction needs ${currentThreshold} signature(s) to execute.\n\n` +
-          `Other owners need to sign this transaction in the "Pending Transactions" tab.`
-        );
       }
+      
+      if (!signature) {
+        throw new Error("Failed to extract signature");
+      }
+      
+      const safeAddress = getAddress(await safeSdk.getAddress());
+      const senderAddress = getAddress(signerAddress!); // Current connected owner who signed the transaction
+      const nonce = await safeSdk.getNonce();
+      
+      // Propose transaction using direct API call
+      await proposeTransaction({
+        safeAddress: safeAddress,
+        to: safeAddress,
+        value: "0",
+        data: signedTx.data.data,
+        operation: signedTx.data.operation,
+        safeTxGas: signedTx.data.safeTxGas,
+        baseGas: signedTx.data.baseGas,
+        gasPrice: signedTx.data.gasPrice,
+        gasToken: signedTx.data.gasToken,
+        refundReceiver: signedTx.data.refundReceiver,
+        nonce: nonce,
+        contractTransactionHash: safeTxHash,
+        sender: senderAddress,
+        signature: signature,
+        origin: "NGO Wallet Management - Update Threshold",
+      });
+      
+      setSuccessMessage(
+        `Update threshold transaction created!\n\n` +
+        `Current Threshold: ${currentThreshold} of ${currentOwners.length}\n` +
+        `Current Signatures: 1 / ${currentThreshold}\n\n` +
+        (currentThreshold === 1 
+          ? `Go to "Pending Transactions" tab to execute this transaction.`
+          : `Other owners need to sign this transaction in the "Pending Transactions" tab.`)
+      );
       
       await refreshSafeInfo();
     } catch (err: any) {

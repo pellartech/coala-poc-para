@@ -276,72 +276,61 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
       const signedRejectionTx = await safeSdkLocal.signTransaction(rejectionTx);
       console.log("Rejection transaction signed");
 
-      // Check if we can execute immediately
-      if (threshold === 1) {
-        // Execute immediately
-        const txResponse = await safeSdkLocal.executeTransaction(signedRejectionTx);
-        console.log("Rejection transaction executed:", txResponse.hash);
-        
-        setSuccess(
-          `✅ Transaction rejected on-chain!\n\n` +
-          `Rejection Tx Hash: ${txResponse.hash}\n` +
-          `Original transaction can no longer be executed.\n\n` +
-          `View on Etherscan: ${getEtherscanTxUrl(txResponse.hash)}`
-        );
-      } else {
-        // Need more signatures - propose rejection transaction
-        const rejectionTxHash = await safeSdkLocal.getTransactionHash(rejectionTx);
-        
-        // Extract signature
-        const signaturesMap = signedRejectionTx.signatures || new Map();
-        let signature = "";
-        for (const [addr, sig] of signaturesMap.entries()) {
-          const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
-          if (sigValue) {
-            signature = sigValue;
-            break;
-          }
+      // Always propose rejection transaction to Safe TX Service (even if threshold = 1)
+      // User needs to manually execute in Pending Transactions tab
+      const rejectionTxHash = await safeSdkLocal.getTransactionHash(rejectionTx);
+      
+      // Extract signature
+      const signaturesMap = signedRejectionTx.signatures || new Map();
+      let signature = "";
+      for (const [addr, sig] of signaturesMap.entries()) {
+        const sigValue = typeof sig === 'string' ? sig : (sig as any)?.data || "";
+        if (sigValue) {
+          signature = sigValue;
+          break;
         }
-
-        if (!signature) {
-          throw new Error("Failed to extract signature from rejection transaction");
-        }
-
-        // Propose rejection transaction to Safe TX Service
-        const sender = getAddress(viemAccount.address);
-        await proposeTransaction({
-          safeAddress: safeAddress,
-          to: safeAddress, // Self-transfer
-          value: "0",
-          data: "0x",
-          operation: 0,
-          safeTxGas: signedRejectionTx.data.safeTxGas,
-          baseGas: signedRejectionTx.data.baseGas,
-          gasPrice: signedRejectionTx.data.gasPrice,
-          gasToken: signedRejectionTx.data.gasToken,
-          refundReceiver: signedRejectionTx.data.refundReceiver,
-          nonce: tx.nonce, // Same nonce as original!
-          contractTransactionHash: rejectionTxHash,
-          sender: sender,
-          signature: signature,
-          origin: JSON.stringify({
-            app: "NGO Wallet Management",
-            type: "rejection",
-            rejectingTx: tx.safeTxHash,
-          }),
-        });
-
-        console.log("Rejection transaction proposed to Safe TX Service");
-        
-        setSuccess(
-          `✅ Rejection transaction proposed!\n\n` +
-          `Nonce: ${tx.nonce}\n` +
-          `Required signatures: ${threshold}\n` +
-          `Current signatures: 1 / ${threshold}\n\n` +
-          `Other signers need to sign the rejection transaction.\n` +
-          `Once ${threshold} signatures collected, execute to reject original transaction on-chain.`
-        );
       }
+
+      if (!signature) {
+        throw new Error("Failed to extract signature from rejection transaction");
+      }
+
+      // Propose rejection transaction to Safe TX Service
+      const sender = getAddress(viemAccount.address);
+      await proposeTransaction({
+        safeAddress: safeAddress,
+        to: safeAddress, // Self-transfer
+        value: "0",
+        data: "0x",
+        operation: 0,
+        safeTxGas: signedRejectionTx.data.safeTxGas,
+        baseGas: signedRejectionTx.data.baseGas,
+        gasPrice: signedRejectionTx.data.gasPrice,
+        gasToken: signedRejectionTx.data.gasToken,
+        refundReceiver: signedRejectionTx.data.refundReceiver,
+        nonce: tx.nonce, // Same nonce as original!
+        contractTransactionHash: rejectionTxHash,
+        sender: sender,
+        signature: signature,
+        origin: JSON.stringify({
+          app: "NGO Wallet Management",
+          type: "rejection",
+          rejectingTx: tx.safeTxHash,
+        }),
+      });
+
+      console.log("Rejection transaction proposed to Safe TX Service");
+      
+      setSuccess(
+        `✅ Rejection transaction proposed!\n\n` +
+        `Nonce: ${tx.nonce}\n` +
+        `Required signatures: ${threshold}\n` +
+        `Current signatures: 1 / ${threshold}\n\n` +
+        (threshold === 1 
+          ? `Go to "Pending Transactions" tab and execute the rejection transaction to reject the original transaction on-chain.`
+          : `Other signers need to sign the rejection transaction.\n` +
+            `Once ${threshold} signatures collected, execute to reject original transaction on-chain.`)
+      );
 
       // Reload pending transactions
       await loadPendingTransactions();
