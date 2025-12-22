@@ -4,6 +4,7 @@ import WalletCreator from "@/components/wallet-creator";
 import TransactionSigner from "@/components/transaction-signer";
 import SafeSmartAccount from "@/components/safe-smart-account";
 import NGOWalletManager from "@/components/ngo-wallet-manager";
+import MySafeWallets from "@/components/my-safe-wallets";
 
 export default function Home() {
   return (
@@ -39,6 +40,10 @@ export default function Home() {
                 Para Docs
               </a>
             </div>
+
+            <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
+
+            <MySafeWallets />
 
             <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
 

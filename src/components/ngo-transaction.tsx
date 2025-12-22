@@ -9,6 +9,7 @@ import SafeApiKit from "@safe-global/api-kit";
 import { CHAIN, RPC_URL, SAFE_TX_SERVICE_URL, SAFE_API_KEY, getEtherscanTxUrl } from "@/config/network";
 import { getSafeSdk, createParaProvider } from "@/lib/safeHelpers";
 import { useSafeProtocolKit } from "@/hooks/useSafeProtocolKit";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { proposeTransaction } from "@/lib/safeTxService";
 
 // USDC contract address on Sepolia (example - replace with actual)
@@ -23,15 +24,15 @@ const ERC20_ABI = parseAbi([
 
 
 export default function NGOTransaction({ safeAddress }: { safeAddress: string }) {
-  const { isConnected } = useAccount();
-  const { data: wallet } = useWallet();
-  const evmWalletAddress = wallet?.type === "EVM" ? (wallet.address as `0x${string}`) : undefined;
-  const { viemAccount } = useViemAccount({ address: evmWalletAddress });
-  const { viemClient: walletClient } = useViemClient({
-    address: evmWalletAddress,
-    walletClientConfig: { chain: CHAIN, transport: http(RPC_URL) },
-  });
-  const { safeSdk, isLoading, error, owners, threshold, refreshSafeInfo } = useSafeProtocolKit(safeAddress);
+  const { 
+    isConnected: contextIsConnected, 
+    walletType,
+    address: contextAddress,
+    getProvider,
+    paraViemAccount,
+    paraWalletClient,
+  } = useWalletContext();
+  const { safeSdk, isLoading, error, owners, threshold, refreshSafeInfo, signerAddress } = useSafeProtocolKit(safeAddress);
   
   const [toAddress, setToAddress] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
@@ -79,8 +80,8 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
 
 
   const handleSendTransaction = async () => {
-    if (!viemAccount || !walletClient) {
-      setErrorMessage("Please connect your wallet first");
+    if (!contextIsConnected) {
+      setErrorMessage("Please connect your wallet (Para or MetaMask) first");
       return;
     }
 
@@ -117,7 +118,11 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
         args: [recipient, amountWei],
       });
 
-      const sender = getAddress(viemAccount.address); // Checksum address
+      if (!signerAddress) {
+        throw new Error("No signer address available");
+      }
+      
+      const sender = getAddress(signerAddress); // Checksum address
       console.log("Sender address:", sender);
       console.log(`Safe threshold: ${threshold} of ${owners.length}`);
 
@@ -225,10 +230,10 @@ export default function NGOTransaction({ safeAddress }: { safeAddress: string })
     }
   };
 
-  if (!isConnected) {
+  if (!contextIsConnected) {
     return (
       <div className="rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
-        ⚠️ Please connect your wallet
+        ⚠️ Please connect your wallet (Para or MetaMask)
       </div>
     );
   }

@@ -2,6 +2,7 @@
 
 import { useSafeSmartAccount } from "@/hooks/useSafeSmartAccount";
 import { useAccount, useWallet } from "@getpara/react-sdk";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { useState, useEffect } from "react";
 import { parseEther, getAddress, isAddress, formatEther, createPublicClient, http } from "viem";
 import { sepolia } from "viem/chains";
@@ -11,6 +12,8 @@ export default function SafeSmartAccount() {
   const { smartAccountClient, safeAccount, isLoading, error: hookError } = useSafeSmartAccount();
   const { isConnected } = useAccount();
   const { data: wallet } = useWallet();
+  const { walletType } = useWalletContext();
+  
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -114,6 +117,15 @@ export default function SafeSmartAccount() {
       setError("Safe account has not been initialized");
     }
   };
+
+  // Hide this component when using MetaMask (this is Pimlico AA, not Safe multisig)
+  if (walletType === "metamask") {
+    return (
+      <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+        ℹ️ <strong>MetaMask Connected:</strong> This section is for Pimlico Safe Smart Account (Account Abstraction with Para). With MetaMask, please use "NGO Wallet Management" below to create and manage Safe multisig wallets.
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (

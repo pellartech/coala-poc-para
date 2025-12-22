@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useCreateSafeMultisig } from "@/hooks/useCreateSafeMultisig";
-import { useAccount } from "@getpara/react-sdk";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { isAddress, getAddress } from "viem";
 import { getEtherscanAddressUrl } from "@/config/network";
 
 export default function NGOWalletCreator({ onWalletCreated }: { onWalletCreated?: (address: string) => void }) {
-  const { isConnected } = useAccount();
+  const { isConnected, walletType } = useWalletContext();
   const { createSafe, isCreating, error, safeAddress } = useCreateSafeMultisig();
   
   const [walletName, setWalletName] = useState<string>("");
@@ -79,7 +79,7 @@ export default function NGOWalletCreator({ onWalletCreated }: { onWalletCreated?
   if (!isConnected) {
     return (
       <div className="rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
-        ⚠️ Please connect your wallet before creating an NGO wallet
+        ⚠️ Please connect your wallet (Para or MetaMask) before creating an NGO wallet
       </div>
     );
   }

@@ -2,6 +2,7 @@
 
 import { useAccount, useWallet } from "@getpara/react-sdk";
 import { useViemAccount, useViemClient } from "@getpara/react-sdk/evm";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { encodeFunctionData, parseEther, http, getAddress, isAddress, parseGwei } from "viem";
 import { useState } from "react";
 import { sepolia } from "viem/chains";
@@ -24,6 +25,7 @@ const erc20TransferABI = [
 export default function TransactionSigner() {
   const { isConnected } = useAccount();
   const { data: wallet } = useWallet();
+  const { walletType } = useWalletContext();
   const evmWalletAddress = wallet?.type === "EVM" ? (wallet.address as `0x${string}`) : undefined;
   const { viemAccount } = useViemAccount({
     address: evmWalletAddress,
@@ -187,6 +189,15 @@ export default function TransactionSigner() {
       return { hash, explorer: getEtherscanTxUrl(hash) };
     }, "ERC20 Transfer");
   };
+
+  // Hide this component when using MetaMask (this is for testing Para wallet only)
+  if (walletType === "metamask") {
+    return (
+      <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+        ℹ️ <strong>MetaMask Connected:</strong> This section is for testing Para wallet signing. With MetaMask, you can go directly to "NGO Wallet Management" below to create and manage Safe multisig wallets.
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (

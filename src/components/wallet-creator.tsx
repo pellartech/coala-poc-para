@@ -1,10 +1,12 @@
 "use client";
 
 import { useCreateWallet, useAccount } from "@getpara/react-sdk";
+import { useWalletContext } from "@/contexts/WalletContext";
 
 export default function WalletCreator() {
   const { createWalletAsync, isPending, error } = useCreateWallet();
   const { isConnected } = useAccount();
+  const { walletType } = useWalletContext();
 
   const handleCreateMulti = async () => {
     try {
@@ -41,6 +43,15 @@ export default function WalletCreator() {
       console.error("create Solana wallet failed", err);
     }
   };
+
+  // Hide this component when using MetaMask (MetaMask doesn't need to create wallet)
+  if (walletType === "metamask") {
+    return (
+      <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+        ℹ️ <strong>MetaMask Connected:</strong> MetaMask wallet is ready to use. You can skip this step and go directly to "NGO Wallet Management" below to create and manage Safe multisig wallets.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">

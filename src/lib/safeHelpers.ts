@@ -19,23 +19,30 @@ export function createParaProvider(walletClient: any, viemAccount: any, rpcUrl: 
 }
 
 /**
- * Get Safe SDK instance using Para provider
- * Following the pattern from Para docs
+ * Get Safe SDK instance using Para or MetaMask provider
  * Safe Protocol Kit v6 accepts EIP-1193 provider directly
  */
 export async function getSafeSdk({
   paraProvider,
+  metamaskProvider,
   safeAddress,
   signerAddress,
 }: {
-  paraProvider: any;
+  paraProvider?: any;
+  metamaskProvider?: any;
   safeAddress: string;
   signerAddress: string;
 }) {
+  // Use whichever provider is provided
+  const provider = paraProvider || metamaskProvider;
+  
+  if (!provider) {
+    throw new Error("Either paraProvider or metamaskProvider must be provided");
+  }
+  
   // Safe Protocol Kit v6 accepts EIP-1193 provider directly
-  // No need to wrap in BrowserProvider
   return await Safe.init({
-    provider: paraProvider as any, // EIP-1193 provider
+    provider: provider as any, // EIP-1193 provider
     signer: signerAddress as `0x${string}`, // Signer address
     safeAddress: safeAddress as `0x${string}`,
   });

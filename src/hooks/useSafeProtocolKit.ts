@@ -6,9 +6,14 @@ import { useViemAccount, useViemClient } from "@getpara/react-sdk/evm";
 import { useWallet } from "@getpara/react-sdk";
 import { http, createPublicClient } from "viem";
 import { createParaEip1193Provider } from "@/lib/safeHelpers";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { CHAIN, RPC_URL } from "@/config/network";
 
 export const useSafeProtocolKit = (safeAddress?: string) => {
+  // Get wallet context to check if MetaMask is connected
+  const { walletType, address: contextAddress, getProvider } = useWalletContext();
+  
+  // Para wallet hooks (only used when Para is connected)
   const { data: wallet } = useWallet();
   const evmWalletAddress = wallet?.type === "EVM" ? (wallet.address as `0x${string}`) : undefined;
   const { viemAccount } = useViemAccount({
@@ -30,7 +35,15 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
 
   useEffect(() => {
     const initializeSafe = async () => {
-      if (!safeAddress || !viemAccount || !walletClient) {
+      // Check if any wallet is connected
+      if (!safeAddress || !walletType || !contextAddress) {
+        setIsLoading(false);
+        return;
+      }
+
+      // For Para: need viemAccount and walletClient
+      // For MetaMask: need provider from context
+      if (walletType === "para" && (!viemAccount || !walletClient)) {
         setIsLoading(false);
         return;
       }
@@ -54,14 +67,33 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
           return;
         }
 
-        // Create custom EIP-1193 provider that intercepts signTypedData and eth_accounts calls
-        const paraProvider = createParaEip1193Provider(walletClient, viemAccount, RPC_URL);
+        // Get the appropriate provider based on wallet type
+        let provider: any;
+        let signerAddress: string;
 
-        // Initialize Safe with custom EIP-1193 provider
-        // Safe.init will create SafeProvider internally
+        if (walletType === "metamask") {
+          // Use MetaMask provider from context
+          provider = getProvider();
+          signerAddress = contextAddress;
+          console.log("Using MetaMask provider for Safe", { signerAddress });
+        } else {
+          // Use Para provider
+          if (!viemAccount || !walletClient) {
+            throw new Error("Para wallet not properly initialized");
+          }
+          provider = createParaEip1193Provider(walletClient, viemAccount, RPC_URL);
+          signerAddress = viemAccount.address;
+          console.log("Using Para provider for Safe", { signerAddress });
+        }
+
+        if (!provider) {
+          throw new Error(`No provider available for ${walletType} wallet`);
+        }
+
+        // Initialize Safe with the appropriate provider
         const safe = await Safe.init({
-          provider: paraProvider as any,
-          signer: viemAccount.address,
+          provider: provider as any,
+          signer: signerAddress as `0x${string}`,
           safeAddress: safeAddress as `0x${string}`,
         });
 
@@ -82,7 +114,7 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
     };
 
     initializeSafe();
-  }, [safeAddress, viemAccount, walletClient]);
+  }, [safeAddress, walletType, contextAddress, viemAccount, walletClient, getProvider]);
 
   const refreshSafeInfo = async () => {
     if (!safeSdk) return;
@@ -104,6 +136,6 @@ export const useSafeProtocolKit = (safeAddress?: string) => {
     owners,
     threshold,
     refreshSafeInfo,
-    signerAddress: viemAccount?.address,
+    signerAddress: contextAddress || viemAccount?.address || null,
   };
 };

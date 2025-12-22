@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ParaProvider } from "@getpara/react-sdk";
 import "@getpara/react-sdk/styles.css";
+import { WalletProvider } from "@/contexts/WalletContext";
 import { useState } from "react";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -27,7 +28,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           appName: process.env.NEXT_PUBLIC_APP_NAME || "Para Next.js App",
         }}
       >
-        {children}
+        <WalletProvider>{children}</WalletProvider>
       </ParaProvider>
     </QueryClientProvider>
   );

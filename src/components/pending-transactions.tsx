@@ -11,6 +11,7 @@ import { http } from "viem";
 import { CHAIN, RPC_URL, SAFE_TX_SERVICE_URL, SAFE_API_KEY } from "@/config/network";
 import { getSafeSdk, createParaProvider } from "@/lib/safeHelpers";
 import { useSafeProtocolKit } from "@/hooks/useSafeProtocolKit";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { 
   getPendingTransactions, 
   confirmTransaction as confirmTx,
@@ -25,21 +26,19 @@ const getEtherscanTxUrl = (hash: string) => `https://sepolia.etherscan.io/tx/${h
 type SafeTransaction = any; // Use Safe Transaction Service response as-is
 
 export default function PendingTransactions({ safeAddress }: { safeAddress: string }) {
-  const { isConnected } = useAccount();
-  const { data: wallet } = useWallet();
-  const { safeSdk, isLoading, owners, threshold } = useSafeProtocolKit(safeAddress);
+  const { 
+    isConnected: contextIsConnected, 
+    walletType, 
+    address: contextAddress,
+    getProvider,
+    paraViemAccount,
+    paraWalletClient,
+  } = useWalletContext();
+  const { safeSdk, isLoading, owners, threshold, signerAddress } = useSafeProtocolKit(safeAddress);
   
+  // Use Para-specific hooks only for Para wallet
+  const { data: wallet } = useWallet();
   const evmWalletAddress = wallet?.type === "EVM" ? (wallet.address as `0x${string}`) : undefined;
-  const { viemAccount } = useViemAccount({
-    address: evmWalletAddress,
-  });
-  const { viemClient: walletClient } = useViemClient({
-    address: evmWalletAddress,
-    walletClientConfig: {
-      chain: CHAIN,
-      transport: http(RPC_URL),
-    },
-  });
 
   const [pendingTxs, setPendingTxs] = useState<SafeTransaction[]>([]);
   const [isSigning, setIsSigning] = useState<string | null>(null);
@@ -99,13 +98,13 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
   }, [safeAddress]);
 
   const handleSignTransaction = async (tx: SafeTransaction) => {
-    if (!viemAccount || !walletClient) {
+    if (!contextIsConnected || !contextAddress) {
       setError("Please connect your wallet first");
       return;
     }
 
     // Check if current wallet is an owner
-    const currentAddress = getAddress(viemAccount.address);
+    const currentAddress = getAddress(contextAddress);
     if (!owners.includes(currentAddress)) {
       setError("Your current wallet is not an owner of this Safe");
       return;
@@ -127,14 +126,29 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
     setSuccess("");
 
     try {
-      // Create Para provider from wallet client
-      const paraProvider = createParaProvider(walletClient, viemAccount, RPC_URL);
+      // Get provider and signer based on wallet type
+      let provider: any;
+      let signer: string;
+
+      if (walletType === "metamask") {
+        provider = getProvider();
+        signer = contextAddress;
+        console.log("Using MetaMask provider for signing");
+      } else {
+        // Para wallet
+        if (!paraViemAccount || !paraWalletClient) {
+          setError("Para wallet not properly initialized");
+          return;
+        }
+        provider = createParaProvider(paraWalletClient, paraViemAccount, RPC_URL);
+        signer = paraViemAccount.address;
+        console.log("Using Para provider for signing");
+      }
       
-      const signer = viemAccount.address;
-      
-      // Get Safe SDK using Para provider (following Para docs pattern)
+      // Get Safe SDK using appropriate provider
       const safeSdkLocal = await getSafeSdk({
-        paraProvider,
+        paraProvider: walletType === "para" ? provider : undefined,
+        metamaskProvider: walletType === "metamask" ? provider : undefined,
         safeAddress,
         signerAddress: signer,
       });
@@ -234,7 +248,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
   };
 
   const handleRejectTransaction = async (tx: SafeTransaction) => {
-    if (!viemAccount || !walletClient) {
+    if (!contextIsConnected || !contextAddress) {
       setError("Please connect your wallet first");
       return;
     }
@@ -257,13 +271,27 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
     try {
       console.log("Creating rejection transaction for nonce:", tx.nonce);
 
-      // Create Para provider
-      const paraProvider = createParaProvider(walletClient, viemAccount, RPC_URL);
-      const signer = viemAccount.address;
+      // Get provider and signer based on wallet type
+      let provider: any;
+      let signer: string;
 
-      // Get Safe SDK
+      if (walletType === "metamask") {
+        provider = getProvider();
+        signer = contextAddress;
+      } else {
+        // Para wallet
+        if (!paraViemAccount || !paraWalletClient) {
+          setError("Para wallet not properly initialized");
+          return;
+        }
+        provider = createParaProvider(paraWalletClient, paraViemAccount, RPC_URL);
+        signer = paraViemAccount.address;
+      }
+
+      // Get Safe SDK using appropriate provider
       const safeSdkLocal = await getSafeSdk({
-        paraProvider,
+        paraProvider: walletType === "para" ? provider : undefined,
+        metamaskProvider: walletType === "metamask" ? provider : undefined,
         safeAddress,
         signerAddress: signer,
       });
@@ -296,7 +324,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
       }
 
       // Propose rejection transaction to Safe TX Service
-      const sender = getAddress(viemAccount.address);
+      const sender = getAddress(signer);
       await proposeTransaction({
         safeAddress: safeAddress,
         to: safeAddress, // Self-transfer
@@ -343,7 +371,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
   };
 
   const handleExecuteTransaction = async (tx: SafeTransaction) => {
-    if (!viemAccount || !walletClient) {
+    if (!contextIsConnected || !contextAddress) {
       setError("Please connect your wallet first");
       return;
     }
@@ -366,14 +394,28 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
       // Get the full transaction data from Safe Transaction Service using custom helper
       const safeTransactionData = await getTx(tx.safeTxHash);
       
-      // Create Para provider from wallet client
-      const paraProvider = createParaProvider(walletClient, viemAccount, RPC_URL);
-      const signer = viemAccount.address;
+      // Get provider and signer based on wallet type
+      let provider: any;
+      let signer: string;
+
+      if (walletType === "metamask") {
+        provider = getProvider();
+        signer = contextAddress;
+      } else {
+        // Para wallet
+        if (!paraViemAccount || !paraWalletClient) {
+          setError("Para wallet not properly initialized");
+          return;
+        }
+        provider = createParaProvider(paraWalletClient, paraViemAccount, RPC_URL);
+        signer = paraViemAccount.address;
+      }
       console.log("Executor address:", signer);
 
-      // Get Safe SDK using Para provider
+      // Get Safe SDK using appropriate provider
       const safeSdkLocal = await getSafeSdk({
-        paraProvider,
+        paraProvider: walletType === "para" ? provider : undefined,
+        metamaskProvider: walletType === "metamask" ? provider : undefined,
         safeAddress,
         signerAddress: signer,
       });
@@ -493,7 +535,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
     }
   };
 
-  if (!isConnected) {
+  if (!contextIsConnected) {
     return (
       <div className="rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
         ⚠️ Please connect your wallet to sign transactions
@@ -526,7 +568,7 @@ export default function PendingTransactions({ safeAddress }: { safeAddress: stri
     );
   }
 
-  const currentAddress = viemAccount ? getAddress(viemAccount.address) : null;
+  const currentAddress = contextAddress ? getAddress(contextAddress) : null;
   const isOwner = currentAddress && owners.includes(currentAddress);
 
   return (

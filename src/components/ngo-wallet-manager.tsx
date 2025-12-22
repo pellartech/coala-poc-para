@@ -5,10 +5,11 @@ import NGOWalletCreator from "./ngo-wallet-creator";
 import SignerManager from "./signer-manager";
 import NGOTransaction from "./ngo-transaction";
 import PendingTransactions from "./pending-transactions";
+import SafeWalletInfo from "./safe-wallet-info";
 
 export default function NGOWalletManager() {
   const [safeAddress, setSafeAddress] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"create" | "manage" | "transaction" | "pending">("manage");
+  const [activeTab, setActiveTab] = useState<"create" | "manage" | "transaction" | "pending">("create");
 
   return (
     <div className="flex flex-col gap-6">
@@ -22,8 +23,22 @@ export default function NGOWalletManager() {
         </p>
       </div>
 
-      {/* Safe Address Input (for existing wallets) */}
-      {!safeAddress && (
+      {/* Safe Wallet Info or Load Input */}
+      {safeAddress ? (
+        <div className="flex items-center gap-3">
+          <SafeWalletInfo safeAddress={safeAddress} />
+          <button
+            onClick={() => {
+              setSafeAddress("");
+              setActiveTab("create");
+            }}
+            className="self-start px-4 py-2 rounded-lg border border-black/[.08] hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-white/[.06] text-sm"
+            title="Clear and load another wallet"
+          >
+            ← Back
+          </button>
+        </div>
+      ) : (
         <div className="flex flex-col gap-3 p-4 border border-black/[.08] dark:border-white/[.145] rounded-lg">
           <h3 className="text-lg font-semibold text-black dark:text-zinc-50">
             Load Existing Safe Wallet
@@ -47,7 +62,7 @@ export default function NGOWalletManager() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-black/[.08] dark:border-white/[.145]">
-        {/* <button
+        <button
           onClick={() => setActiveTab("create")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "create"
@@ -56,7 +71,7 @@ export default function NGOWalletManager() {
           }`}
         >
           Create Wallet
-        </button> */}
+        </button>
         {safeAddress && (
           <>
             <button
@@ -95,7 +110,7 @@ export default function NGOWalletManager() {
 
       {/* Tab Content */}
       <div>
-        {/* {activeTab === "create" && (
+        {activeTab === "create" && (
           <NGOWalletCreator
             onWalletCreated={(address) => {
               if (address) {
@@ -104,7 +119,7 @@ export default function NGOWalletManager() {
               }
             }}
           />
-        )} */}
+        )}
         {activeTab === "manage" && safeAddress && (
           <SignerManager safeAddress={safeAddress} />
         )}

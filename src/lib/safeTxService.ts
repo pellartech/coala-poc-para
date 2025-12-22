@@ -200,3 +200,33 @@ export async function getTransaction(safeTxHash: string): Promise<any> {
   
   return await response.json();
 }
+
+/**
+ * Get all Safe wallets owned by an address
+ */
+export async function getSafesByOwner(ownerAddress: string): Promise<any> {
+  const checksummedAddress = getAddress(ownerAddress);
+  const url = `${SAFE_TX_SERVICE_URL}/owners/${checksummedAddress}/safes/`;
+  
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+  
+  if (SAFE_API_KEY) {
+    headers["X-API-Key"] = SAFE_API_KEY;
+  }
+  
+  const response = await fetch(url, {
+    method: "GET",
+    headers,
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    console.error("API Error:", response.status, error);
+    throw new Error(`${response.status}: ${error}`);
+  }
+  
+  const data = await response.json();
+  return data.safes || []; // Returns array of Safe addresses
+}

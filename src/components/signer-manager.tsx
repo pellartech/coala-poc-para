@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSafeProtocolKit } from "@/hooks/useSafeProtocolKit";
-import { useAccount } from "@getpara/react-sdk";
+import { useWalletContext } from "@/contexts/WalletContext";
 import { isAddress, getAddress } from "viem";
 import { addSigner, removeSigner, updateThreshold, replaceSigner } from "@/lib/safeHelpers";
 import SafeApiKit from "@safe-global/api-kit";
@@ -10,7 +10,7 @@ import { CHAIN, SAFE_TX_SERVICE_URL, SAFE_API_KEY } from "@/config/network";
 import { proposeTransaction } from "@/lib/safeTxService";
 
 export default function SignerManager({ safeAddress }: { safeAddress: string }) {
-  const { isConnected } = useAccount();
+  const { isConnected, walletType } = useWalletContext();
   const { safeSdk, isLoading, error, owners, threshold, refreshSafeInfo, signerAddress } = useSafeProtocolKit(safeAddress);
   
   const [newSignerAddress, setNewSignerAddress] = useState<string>("");
