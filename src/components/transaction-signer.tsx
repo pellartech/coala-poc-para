@@ -6,7 +6,7 @@ import { useWalletContext } from "@/contexts/WalletContext";
 import { usePimlicoSmartAccount } from "@/hooks/usePimlicoSmartAccount"; // EIP-4337 (separate Smart Account)
 import { usePimlico7702SmartAccount } from "@/hooks/usePimlico7702SmartAccount"; // EIP-7702 (upgrade Para wallet)
 import { encodeFunctionData, parseEther, parseUnits, formatUnits, http, getAddress, isAddress, parseGwei, createPublicClient, formatEther } from "viem";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { sepolia } from "viem/chains";
 import { getEtherscanTxUrl } from "@/config/network";
 
@@ -92,6 +92,11 @@ export default function TransactionSigner() {
   const [erc20ToAddress, setErc20ToAddress] = useState<string>("");
   const [erc20Amount, setErc20Amount] = useState<string>("100");
   
+  // Smart Account Balances
+  const [smartAccountEthBalance, setSmartAccountEthBalance] = useState<string>("...");
+  const [smartAccountUsdcBalance, setSmartAccountUsdcBalance] = useState<string>("...");
+  const [isLoadingBalances, setIsLoadingBalances] = useState<boolean>(false);
+  
   // EIP-7702 Authorization Helper
   // Per Pimlico docs: https://docs.pimlico.io/guides/eip7702/demo
   const getAuthorizationIfNeeded = async () => {
@@ -136,6 +141,69 @@ export default function TransactionSigner() {
     }
   };
 
+  // Fetch Smart Account Balances (ETH and USDC)
+  const fetchSmartAccountBalances = async () => {
+    if (!smartAccount) {
+      setSmartAccountEthBalance("...");
+      setSmartAccountUsdcBalance("...");
+      return;
+    }
+    
+    try {
+      setIsLoadingBalances(true);
+      
+      const publicClient = createPublicClient({
+        chain: sepolia,
+        transport: http(),
+      });
+      
+      // Fetch ETH balance
+      const ethBalance = await publicClient.getBalance({
+        address: smartAccount.address as `0x${string}`,
+      });
+      setSmartAccountEthBalance(formatEther(ethBalance));
+      
+      // Fetch USDC balance
+      try {
+        const usdcBalance = await publicClient.readContract({
+          address: erc20TokenAddress as `0x${string}`,
+          abi: [{
+            name: "balanceOf",
+            type: "function",
+            stateMutability: "view",
+            inputs: [{ name: "account", type: "address" }],
+            outputs: [{ name: "", type: "uint256" }],
+          }],
+          functionName: "balanceOf",
+          args: [smartAccount.address],
+        });
+        
+        // Fetch decimals
+        const decimals = await publicClient.readContract({
+          address: erc20TokenAddress as `0x${string}`,
+          abi: erc20DecimalsABI,
+          functionName: "decimals",
+        });
+        
+        setSmartAccountUsdcBalance(formatUnits(usdcBalance as bigint, decimals as number));
+      } catch (err) {
+        console.error("Failed to fetch USDC balance:", err);
+        setSmartAccountUsdcBalance("N/A");
+      }
+    } catch (error) {
+      console.error("Failed to fetch Smart Account balances:", error);
+      setSmartAccountEthBalance("Error");
+      setSmartAccountUsdcBalance("Error");
+    } finally {
+      setIsLoadingBalances(false);
+    }
+  };
+  
+  // Auto-fetch balances when Smart Account is ready
+  useEffect(() => {
+    fetchSmartAccountBalances();
+  }, [smartAccount, smartAccountLoading, erc20TokenAddress]);
+
   // Common handler
   const handleAction = async (action: () => Promise<any>, actionName: string) => {
     if (!isConnected || !wallet || !viemAccount) {
@@ -151,6 +219,10 @@ export default function TransactionSigner() {
       const res = await action();
       setResult(`${actionName} successful!\n${JSON.stringify(res, null, 2)}`);
       console.log(`${actionName} result:`, res);
+      
+      // Refresh Smart Account balances after transaction
+      console.log("🔄 Refreshing Smart Account balances...");
+      setTimeout(() => fetchSmartAccountBalances(), 2000); // Wait 2s for blockchain to update
     } catch (err: any) {
       setError(`${actionName} failed: ${err?.message || String(err)}`);
       console.error(`${actionName} error:`, err);
@@ -795,9 +867,28 @@ export default function TransactionSigner() {
             
             {smartAccount && !smartAccountLoading && (
               <div className="rounded-lg bg-green-50 p-3 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300">
-                ✅ Smart Account Ready: {smartAccount.address.slice(0, 10)}...{smartAccount.address.slice(-8)}
-                <br />
-                💡 Enable gasless mode below for FREE gas via Pimlico!
+                <div className="flex justify-between items-start">
+                  <div>
+                    ✅ Smart Account Ready: {smartAccount.address.slice(0, 10)}...{smartAccount.address.slice(-8)}
+                    <br />
+                    💡 Enable gasless mode below for FREE gas via Pimlico!
+                  </div>
+                  <button
+                    onClick={fetchSmartAccountBalances}
+                    disabled={isLoadingBalances}
+                    className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isLoadingBalances ? "⏳" : "🔄"}
+                  </button>
+                </div>
+                <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-800 flex gap-4">
+                  <div>
+                    <span className="font-semibold">💰 ETH:</span> {smartAccountEthBalance} ETH
+                  </div>
+                  <div>
+                    <span className="font-semibold">💵 USDC:</span> {smartAccountUsdcBalance} USDC
+                  </div>
+                </div>
               </div>
             )}
 
@@ -887,9 +978,28 @@ export default function TransactionSigner() {
             
             {smartAccount && !smartAccountLoading && (
               <div className="rounded-lg bg-green-50 p-3 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300">
-                ✅ Smart Account Ready: {smartAccount.address.slice(0, 10)}...{smartAccount.address.slice(-8)}
-                <br />
-                💡 Enable gasless mode below for FREE gas via Pimlico!
+                <div className="flex justify-between items-start">
+                  <div>
+                    ✅ Smart Account Ready: {smartAccount.address.slice(0, 10)}...{smartAccount.address.slice(-8)}
+                    <br />
+                    💡 Enable gasless mode below for FREE gas via Pimlico!
+                  </div>
+                  <button
+                    onClick={fetchSmartAccountBalances}
+                    disabled={isLoadingBalances}
+                    className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isLoadingBalances ? "⏳" : "🔄"}
+                  </button>
+                </div>
+                <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-800 flex gap-4">
+                  <div>
+                    <span className="font-semibold">💰 ETH:</span> {smartAccountEthBalance} ETH
+                  </div>
+                  <div>
+                    <span className="font-semibold">💵 USDC:</span> {smartAccountUsdcBalance} USDC
+                  </div>
+                </div>
               </div>
             )}
 
@@ -983,9 +1093,28 @@ export default function TransactionSigner() {
             
             {smartAccount && !smartAccountLoading && (
               <div className="rounded-lg bg-green-50 p-3 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300">
-                ✅ Smart Account Ready: {smartAccount.address.slice(0, 10)}...{smartAccount.address.slice(-8)}
-                <br />
-                💡 Enable gasless mode below for FREE gas via Pimlico!
+                <div className="flex justify-between items-start">
+                  <div>
+                    ✅ Smart Account Ready: {smartAccount.address.slice(0, 10)}...{smartAccount.address.slice(-8)}
+                    <br />
+                    💡 Enable gasless mode below for FREE gas via Pimlico!
+                  </div>
+                  <button
+                    onClick={fetchSmartAccountBalances}
+                    disabled={isLoadingBalances}
+                    className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isLoadingBalances ? "⏳" : "🔄"}
+                  </button>
+                </div>
+                <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-800 flex gap-4">
+                  <div>
+                    <span className="font-semibold">💰 ETH:</span> {smartAccountEthBalance} ETH
+                  </div>
+                  <div>
+                    <span className="font-semibold">💵 USDC:</span> {smartAccountUsdcBalance} USDC
+                  </div>
+                </div>
               </div>
             )}
 
