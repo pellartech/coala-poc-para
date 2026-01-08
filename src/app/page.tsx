@@ -43,7 +43,7 @@ export default function Home() {
 
             <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
 
-            <MySafeWallets />
+            {/* <MySafeWallets /> */}
 
             <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
 
@@ -53,13 +53,13 @@ export default function Home() {
 
             <TransactionSigner />
 
-            <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
+            {/* <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
 
             <SafeSmartAccount />
 
             <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800" />
 
-            <NGOWalletManager />
+            <NGOWalletManager /> */}
           </div>
         </div>
       </main>
