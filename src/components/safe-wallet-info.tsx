@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSafeProtocolKit } from "@/hooks/useSafeProtocolKit";
 import { useWalletContext } from "@/contexts/WalletContext";
-import { formatEther } from "viem";
+import { formatEther, isAddress } from "viem";
 import { createPublicClient, http } from "viem";
 import { CHAIN, RPC_URL, getEtherscanAddressUrl } from "@/config/network";
 
@@ -13,13 +13,25 @@ interface SafeWalletInfoProps {
 
 export default function SafeWalletInfo({ safeAddress }: SafeWalletInfoProps) {
   const { isConnected } = useWalletContext();
-  const { safeSdk, isLoading: sdkLoading } = useSafeProtocolKit(safeAddress);
+  
+  // Only use the hook if address is valid, otherwise pass empty string
+  const isValidAddress = isAddress(safeAddress);
+  const { safeSdk, isLoading: sdkLoading } = useSafeProtocolKit(isValidAddress ? safeAddress : "");
   
   const [owners, setOwners] = useState<string[]>([]);
   const [threshold, setThreshold] = useState<number>(0);
   const [balance, setBalance] = useState<string>("0");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>("");
+  
+  // Validate address and show error if invalid
+  if (!isValidAddress) {
+    return (
+      <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+        ❌ Invalid Safe address: "{safeAddress}". Please enter a valid Ethereum address starting with 0x.
+      </div>
+    );
+  }
 
   useEffect(() => {
     const loadSafeInfo = async () => {

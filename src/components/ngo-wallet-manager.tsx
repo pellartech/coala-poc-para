@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isAddress, getAddress } from "viem";
 import NGOWalletCreator from "./ngo-wallet-creator";
 import SignerManager from "./signer-manager";
 import NGOTransaction from "./ngo-transaction";
@@ -9,7 +10,34 @@ import SafeWalletInfo from "./safe-wallet-info";
 
 export default function NGOWalletManager() {
   const [safeAddress, setSafeAddress] = useState<string>("");
+  const [inputValue, setInputValue] = useState<string>("");
+  const [inputError, setInputError] = useState<string>("");
   const [activeTab, setActiveTab] = useState<"create" | "manage" | "transaction" | "pending">("create");
+
+  const handleLoadAddress = () => {
+    const trimmedValue = inputValue.trim();
+    
+    if (!trimmedValue) {
+      setInputError("Please enter a Safe address");
+      return;
+    }
+
+    if (!isAddress(trimmedValue)) {
+      setInputError("Invalid Ethereum address. Please enter a valid address starting with 0x");
+      return;
+    }
+
+    try {
+      // Normalize the address (checksum format)
+      const normalizedAddress = getAddress(trimmedValue);
+      setSafeAddress(normalizedAddress);
+      setInputValue("");
+      setInputError("");
+      setActiveTab("manage");
+    } catch (err) {
+      setInputError("Invalid Ethereum address format");
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -30,6 +58,8 @@ export default function NGOWalletManager() {
           <button
             onClick={() => {
               setSafeAddress("");
+              setInputValue("");
+              setInputError("");
               setActiveTab("create");
             }}
             className="self-start px-4 py-2 rounded-lg border border-black/[.08] hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-white/[.06] text-sm"
@@ -43,19 +73,40 @@ export default function NGOWalletManager() {
           <h3 className="text-lg font-semibold text-black dark:text-zinc-50">
             Load Existing Safe Wallet
           </h3>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              onChange={(e) => {
-                const addr = e.target.value;
-                if (addr) {
-                  setSafeAddress(addr);
-                  setActiveTab("manage");
-                }
-              }}
-              placeholder="0x... (Safe address)"
-              className="flex-1 rounded-lg border border-black/[.08] bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-white/[.145] dark:bg-[#1a1a1a] dark:text-zinc-50"
-            />
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => {
+                  const value = e.target.value.trim();
+                  setInputValue(value);
+                  setInputError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleLoadAddress();
+                  }
+                }}
+                placeholder="0x... (Safe address)"
+                className={`flex-1 rounded-lg border px-4 py-2 text-sm focus:outline-none dark:bg-[#1a1a1a] dark:text-zinc-50 ${
+                  inputError
+                    ? "border-red-500 focus:border-red-500 bg-white dark:border-red-500"
+                    : "border-black/[.08] focus:border-blue-500 bg-white dark:border-white/[.145]"
+                }`}
+              />
+              <button
+                onClick={handleLoadAddress}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+              >
+                Load
+              </button>
+            </div>
+            {inputError && (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                {inputError}
+              </p>
+            )}
           </div>
         </div>
       )}
