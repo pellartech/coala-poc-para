@@ -253,22 +253,26 @@ export default function SafeSmartAccount() {
                     💰 Balance: {parseFloat(balance).toFixed(6)} ETH
                     {isLoadingBalance && " (loading...)"}
                   </span>
-                  {parseFloat(balance) < 0.001 && (
-                    <div className="mt-2 rounded bg-yellow-100 p-2 text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
-                      ⚠️ Low balance! Need at least 0.001-0.01 ETH to send transaction.
-                      <br />
-                      <a 
-                        href={getEtherscanAddressUrl(safeAccount.address)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline"
-                      >
-                        View on Etherscan
-                      </a>
-                    </div>
-                  )}
                 </>
               )}
+              <div className="mt-2 rounded bg-blue-100 p-2 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                🎉 <strong>Gasless Transactions Enabled!</strong>
+                <br />
+                Transactions will be sponsored by Pimlico paymaster - no gas fees required!
+                <br />
+                <span className="text-xs opacity-75">
+                  (Configure sponsorship policy at{" "}
+                  <a 
+                    href="https://dashboard.pimlico.io/sponsorship-policies"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    dashboard.pimlico.io
+                  </a>
+                  )
+                </span>
+              </div>
             </div>
           )}
 

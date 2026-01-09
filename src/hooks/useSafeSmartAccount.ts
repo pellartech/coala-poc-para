@@ -7,7 +7,7 @@ import { createSmartAccountClient } from "permissionless";
 import { toSafeSmartAccount } from "permissionless/accounts";
 import { createPimlicoClient } from "permissionless/clients/pimlico";
 import { entryPoint07Address } from "viem/account-abstraction";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { CHAIN, RPC_URL } from "@/config/network";
 const PIMLICO_API_KEY = process.env.NEXT_PUBLIC_PIMLICO_API_KEY || 'YOUR_PIMLICO_API_KEY'; // From dashboard.pimlico.io
 const PIMLICO_URL = `https://api.pimlico.io/v2/${CHAIN.id}/rpc?apikey=${PIMLICO_API_KEY}`;
@@ -30,6 +30,21 @@ export const useSafeSmartAccount = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Create Pimlico Paymaster Client (useMemo for performance - similar to EIP-7702)
+  const pimlicoClient = useMemo(() => {
+    if (!PIMLICO_API_KEY || PIMLICO_API_KEY === 'YOUR_PIMLICO_API_KEY') {
+      return null;
+    }
+    
+    return createPimlicoClient({
+      transport: http(PIMLICO_URL),
+      entryPoint: {
+        address: entryPoint07Address,
+        version: "0.7"
+      }
+    });
+  }, [PIMLICO_API_KEY]); // Only recreate if API key changes
+
   useEffect(() => {
     const initializeClient = async () => {
       if (!viemAccount || accountLoading || !walletClient || clientLoading) {
@@ -51,9 +66,13 @@ export const useSafeSmartAccount = () => {
           throw new Error("WalletClient does not have an account address. Please check your Para account.");
         }
 
-        // Validate Pimlico API key
+        // Validate Pimlico API key and client
         if (!PIMLICO_API_KEY || PIMLICO_API_KEY === 'YOUR_PIMLICO_API_KEY') {
-          throw new Error("Pimlico API key is not configured. Please add NEXT_PUBLIC_PIMLICO_API_KEY to .env.local");
+          throw new Error("Pimlico API key is not configured. Please add NEXT_PUBLICO_API_KEY to .env.local");
+        }
+        
+        if (!pimlicoClient) {
+          throw new Error("Pimlico client not initialized. Please check your API key configuration.");
         }
 
         console.log("Initializing Safe Smart Account with:", {
@@ -62,20 +81,35 @@ export const useSafeSmartAccount = () => {
           accountType: viemAccount.type
         });
 
-        console.log("ViemAccount details:", {
-          address: viemAccount.address,
-          type: viemAccount.type,
-          hasSign: typeof (viemAccount as any).sign === 'function',
-          hasSignMessage: typeof viemAccount.signMessage === 'function',
-          hasSignTypedData: typeof viemAccount.signTypedData === 'function'
-        });
-
-        console.log("WalletClient from Para SDK:", {
-          address: walletClient.account.address,
-          type: walletClient.account.type,
-          hasSign: typeof walletClient.account.sign === 'function',
-          hasSignMessage: typeof walletClient.account.signMessage === 'function'
-        });
+        // Log detailed account information to help debug which accounts work vs don't work
+        const accountInfo = {
+          viemAccount: {
+            address: viemAccount.address,
+            type: viemAccount.type,
+            hasSign: typeof (viemAccount as any).sign === 'function',
+            hasSignMessage: typeof viemAccount.signMessage === 'function',
+            hasSignTypedData: typeof viemAccount.signTypedData === 'function',
+            isLocalAccount: (viemAccount as any).type === 'local',
+            publicKey: (viemAccount as any).publicKey ? 'present' : 'missing',
+            source: (viemAccount as any).source || 'unknown',
+          },
+          walletClientAccount: {
+            address: walletClient.account.address,
+            type: walletClient.account.type,
+            hasSign: typeof walletClient.account.sign === 'function',
+            hasSignMessage: typeof walletClient.account.signMessage === 'function',
+            publicKey: (walletClient.account as any).publicKey ? 'present' : 'missing',
+            source: (walletClient.account as any).source || 'unknown',
+          },
+          addressesMatch: viemAccount.address.toLowerCase() === walletClient.account.address.toLowerCase(),
+        };
+        
+        console.log("📋 Account Analysis (for debugging account-specific issues):", accountInfo);
+        
+        // Warn if addresses don't match
+        if (!accountInfo.addressesMatch) {
+          console.warn("⚠️ Address mismatch between viemAccount and walletClient.account!");
+        }
 
         // Create Viem PublicClient (needed for smart account)
         const publicClient = createPublicClient({
@@ -83,94 +117,150 @@ export const useSafeSmartAccount = () => {
           transport: http(RPC_URL)
         });
 
-        // ✅ IMPORTANT: Para wallet CANNOT sign EIP-712 in the format that Safe v1.4.1 requires
-        // Para override/wrap signing → domain/types/primaryType are processed differently → Safe verify fails → AA24
-        // Solution: Wrap Para signer into Safe-compatible account
-        console.log("Creating Safe-compatible signer wrapper from Para wallet...");
+        // ✅ IMPORTANT: Safe Smart Account with Account Abstraction requires proper EIP-712 signing
+        // Safe v1.4.1 with EntryPoint 0.7 requires signature of UserOperation hash in EIP-712 format
+        // Different Para accounts may have different signing capabilities - handle all cases
+        console.log("Creating Safe-compatible signer from Para wallet...");
         
-        // Adjust v byte in signature: Safe expects 27/28, but Para may return 0/1
-        function adjustV(signature: `0x${string}`): `0x${string}` {
-          let sig = signature.slice(2);
-          const vHex = sig.slice(-2);
-          const v = parseInt(vHex, 16);
-          if (!Number.isNaN(v) && v < 27) {
-            const adjustedV = (v + 27).toString(16).padStart(2, "0");
-            sig = sig.slice(0, -2) + adjustedV;
+        // Check account capabilities
+        const hasViemSignTypedData = typeof (viemAccount as any)?.signTypedData === 'function';
+        const isViemLocalAccount = (viemAccount as any).type === 'local';
+        const viemCanUseDirectly = hasViemSignTypedData && isViemLocalAccount;
+        
+        console.log("🔍 Account Signing Capabilities:", {
+          hasViemSignTypedData,
+          isViemLocalAccount,
+          viemCanUseDirectly,
+          willUseWrapper: !viemCanUseDirectly,
+        });
+        
+        // Normalize address to checksum format (important for some accounts)
+        const normalizedAddress = walletClient.account.address as `0x${string}`;
+        
+        // Helper function to normalize signature format (outside object literal)
+        const normalizeSignature = (signature: any, accountAddress: string): `0x${string}` => {
+          if (typeof signature !== 'string') {
+            throw new Error(`Invalid signature type for account ${accountAddress.slice(0, 10)}...`);
           }
-          return `0x${sig}` as `0x${string}`;
-        }
-        
-        // Create LocalAccount wrapper with properly wrapped signTypedData
-        // Safe only calls signTypedData, not sign()
-        const paraSafeOwner: LocalAccount = {
-          address: walletClient.account.address,
-          type: "local",
-          // Get publicKey from walletClient.account if available
-          publicKey: (walletClient.account as any).publicKey || `0x${'0'.repeat(130)}` as Hex,
-          source: (walletClient.account as any).source || 'para',
           
-          // Wrap signTypedData to ensure correct format for Safe
-          // Safe requires signature of UserOperation hash in EIP-712 format with Safe domain
-          async signTypedData(typedData: any) {
-            console.log("🔐 Safe requesting signature with typedData:", {
-              domain: typedData.domain,
-              primaryType: typedData.primaryType,
-              types: Object.keys(typedData.types || {}),
-              messageKeys: Object.keys(typedData.message || {}),
-            });
-            
-            try {
-              const signature = await walletClient.signTypedData({
-                account: walletClient.account,
-                domain: typedData.domain,
-                types: typedData.types,
-                primaryType: typedData.primaryType,
-                message: typedData.message,
-              } as any);
-              
-              console.log("✅ Para wallet signed successfully");
-              console.log("📝 Signature details (before adjustV):", {
-                length: signature.length,
-                prefix: signature.substring(0, 20) + "...",
-                vByte: signature.slice(-2),
-                fullSignature: signature,
-                isValidLength: signature.length === 132,
-              });
-              
-              // Adjust v byte for Safe compatibility (0/1 → 27/28)
-              const adjustedSignature = adjustV(signature as `0x${string}`);
-              console.log("📝 Signature details (after adjustV):", {
-                length: adjustedSignature.length,
-                prefix: adjustedSignature.substring(0, 20) + "...",
-                vByte: adjustedSignature.slice(-2),
-                fullSignature: adjustedSignature,
-              });
-              
-              return adjustedSignature;
-            } catch (error) {
-              console.error("❌ Para wallet signTypedData failed:", error);
-              throw error;
-            }
-          },
+          const sigHex = signature.startsWith('0x') ? signature.slice(2) : signature;
           
-          // Wrap signMessage to ensure compatibility
-          async signMessage({ message }: { message: any }) {
-            const signature = await walletClient.signMessage({
-              account: walletClient.account,
-              message,
-            });
-            // Adjust v byte for Safe compatibility (0/1 → 27/28)
-            return adjustV(signature as `0x${string}`);
-          },
-          
-          // Add signTransaction to meet type requirements (Safe doesn't use it but it's required)
-          async signTransaction(transaction: any) {
-            return await walletClient.signTransaction({
-              account: walletClient.account,
-              ...transaction,
-            });
-          },
+          // Ensure signature is 130 hex chars (65 bytes)
+          if (sigHex.length === 130) {
+            return `0x${sigHex}` as `0x${string}`;
+          } else if (sigHex.length === 128) {
+            // Missing v byte, this shouldn't happen but handle it
+            console.warn(`⚠️ [${accountAddress.slice(0, 10)}...] Signature missing v byte, adding default (27)`);
+            return `0x${sigHex}1b` as `0x${string}`;
+          } else {
+            console.warn(`⚠️ [${accountAddress.slice(0, 10)}...] Unexpected signature length: ${sigHex.length}, using as-is`);
+            return signature as `0x${string}`;
+          }
         };
+        
+        // Create LocalAccount - try using viemAccount directly if compatible, otherwise wrap
+        const paraSafeOwner: LocalAccount = viemCanUseDirectly
+          ? (() => {
+              console.log("✅ Using viemAccount directly (LocalAccount with signTypedData)");
+              return viemAccount as LocalAccount;
+            })()
+          : {
+              address: normalizedAddress,
+              type: "local",
+              publicKey: (walletClient.account as any).publicKey || (viemAccount as any).publicKey || `0x${'0'.repeat(130)}` as Hex,
+              source: (walletClient.account as any).source || (viemAccount as any).source || 'para',
+              
+              // Wrap signTypedData to ensure correct format for Safe
+              // Safe requires signature of UserOperation hash in EIP-712 format with Safe domain
+              // This wrapper handles different account types and signing methods
+              async signTypedData(typedData: any) {
+                const accountAddress = normalizedAddress;
+                console.log(`🔐 [Account: ${accountAddress.slice(0, 10)}...] Safe requesting signature:`, {
+                  domain: typedData.domain,
+                  primaryType: typedData.primaryType,
+                  types: Object.keys(typedData.types || {}),
+                  messageKeys: Object.keys(typedData.message || {}),
+                });
+                
+                try {
+                  // Strategy 1: Try viemAccount.signTypedData if available
+                  if (hasViemSignTypedData && typeof (viemAccount as any).signTypedData === 'function') {
+                    console.log(`📝 [${accountAddress.slice(0, 10)}...] Strategy 1: Using viemAccount.signTypedData`);
+                    try {
+                      const signature = await (viemAccount as any).signTypedData(typedData);
+                      console.log(`✅ [${accountAddress.slice(0, 10)}...] viemAccount signed successfully`);
+                      return normalizeSignature(signature, accountAddress);
+                    } catch (err: any) {
+                      console.warn(`⚠️ [${accountAddress.slice(0, 10)}...] viemAccount.signTypedData failed, trying fallback:`, err?.message);
+                      // Continue to fallback
+                    }
+                  }
+                  
+                  // Strategy 2: Use walletClient.signTypedData (most common for Para accounts)
+                  console.log(`📝 [${accountAddress.slice(0, 10)}...] Strategy 2: Using walletClient.signTypedData`);
+                  const signature = await walletClient.signTypedData({
+                    account: walletClient.account,
+                    domain: typedData.domain,
+                    types: typedData.types,
+                    primaryType: typedData.primaryType,
+                    message: typedData.message,
+                  } as any);
+                  
+                  console.log(`✅ [${accountAddress.slice(0, 10)}...] Para wallet signed successfully`);
+                  console.log(`📝 [${accountAddress.slice(0, 10)}...] Signature details:`, {
+                    length: signature.length,
+                    prefix: signature.substring(0, 20) + "...",
+                    vByte: signature.slice(-2),
+                    isValidLength: signature.length === 132 || signature.length === 130,
+                  });
+                  
+                  return normalizeSignature(signature, accountAddress);
+                } catch (error: any) {
+                  console.error(`❌ [${accountAddress.slice(0, 10)}...] SignTypedData failed:`, error);
+                  console.error(`❌ [${accountAddress.slice(0, 10)}...] Error details:`, {
+                    message: error?.message,
+                    accountType: viemAccount.type,
+                    accountAddress: accountAddress,
+                    hasViemSignTypedData,
+                    typedDataDomain: typedData.domain,
+                  });
+                  throw new Error(`Failed to sign typed data for account ${accountAddress.slice(0, 10)}...: ${error?.message || 'Unknown error'}`);
+                }
+              },
+              
+              // Wrap signMessage to ensure compatibility
+              async signMessage({ message }: { message: any }) {
+                try {
+                  if (hasViemSignTypedData && typeof (viemAccount as any).signMessage === 'function') {
+                    return await (viemAccount as any).signMessage({ message });
+                  }
+                  const signature = await walletClient.signMessage({
+                    account: walletClient.account,
+                    message,
+                  });
+                  return signature as `0x${string}`;
+                } catch (error: any) {
+                  console.error("❌ SignMessage failed:", error);
+                  throw new Error(`Failed to sign message: ${error?.message || 'Unknown error'}`);
+                }
+              },
+              
+              // Add signTransaction to meet type requirements
+              async signTransaction(transaction: any) {
+                try {
+                  if (hasViemSignTypedData && typeof (viemAccount as any).signTransaction === 'function') {
+                    return await (viemAccount as any).signTransaction(transaction);
+                  }
+                  return await walletClient.signTransaction({
+                    account: walletClient.account,
+                    ...transaction,
+                  });
+                } catch (error: any) {
+                  console.error("❌ SignTransaction failed:", error);
+                  throw new Error(`Failed to sign transaction: ${error?.message || 'Unknown error'}`);
+                }
+              },
+            };
         
         console.log("Creating Safe account with Safe-compatible signer wrapper...");
         
@@ -192,29 +282,22 @@ export const useSafeSmartAccount = () => {
           ownerAddress: walletClient.account.address
         });
 
-        // Create Pimlico client for bundler operations
-        const pimlicoClient = createPimlicoClient({
-          transport: http(PIMLICO_URL),
-          entryPoint: {
-            address: entryPoint07Address,
-            version: "0.7"
-          }
-        });
-
-        // Create the Smart Account Client
+        // Create the Smart Account Client with Pimlico bundler and paymaster for FREE GAS
         const client = createSmartAccountClient({
           account: safe,
           chain: CHAIN,
           bundlerTransport: http(PIMLICO_URL),
-          // Temporarily disable paymaster for testing (users pay gas themselves)
-          // To enable gasless, configure sponsorship policy at: https://dashboard.pimlico.io/sponsorship-policies
-          // paymaster: pimlicoClient, // Uncomment when sponsorship policy is configured
+          paymaster: pimlicoClient, // ✅ Enable gasless transactions via Pimlico paymaster
           userOperation: {
             estimateFeesPerGas: async () => {
               return (await pimlicoClient.getUserOperationGasPrice()).fast
             }
           }
         });
+
+        console.log("✅ Smart Account Client ready!");
+        console.log("🎉 Gasless transactions enabled via Pimlico paymaster!");
+        console.log("🎉 Send transactions with FREE gas from Safe Smart Account!");
 
         setSafeAccount(safe);
         setSmartAccountClient(client);
@@ -253,7 +336,7 @@ export const useSafeSmartAccount = () => {
     };
 
     initializeClient();
-  }, [viemAccount, accountLoading, walletClient, clientLoading]);
+  }, [viemAccount, accountLoading, walletClient, clientLoading, pimlicoClient]);
 
   return { smartAccountClient, safeAccount, isLoading: isLoading || accountLoading || clientLoading, error };
 };
